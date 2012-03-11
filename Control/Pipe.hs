@@ -119,7 +119,7 @@ module Control.Pipe (
   -- any monad, but don't have any exception-safety guarantees, so they should
   -- only be used for 'Pipe's that don't allocate any scarce resources.
   --
-  -- > runPipePipe :: (Monad m) => Pipeline m r -> m (Either SomeException r)
+  -- > runPurePipe :: (Monad m) => Pipeline m r -> m (Either SomeException r)
   -- > runPurePipe_ :: (Monad m) => Pipeline m r -> m r
   --
   -- 'runPipe', 'runPurePipe' and 'runPurePipe_' only work on self-contained
