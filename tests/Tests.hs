@@ -1,3 +1,5 @@
+{-# OPTIONS -fno-warn-orphans #-}
+
 import Control.Monad
 import Control.Monad.Trans.Writer (tell, runWriter)
 import Control.Monad.Trans.Class
@@ -5,15 +7,13 @@ import Control.Pipe
 import Control.Pipe.Combinators (($$), tryAwait)
 import Control.Pipe.Exception
 import qualified Control.Pipe.Combinators as P
-import Data.Char
 import Data.Functor.Identity
 import Data.List
 import Test.Framework
 import Test.Framework.Providers.QuickCheck2
-import Test.QuickCheck
 
 instance Show (a -> b) where
-  show f = "<function>"
+  show _ = "<function>"
 
 id' :: Monad m => m r -> Pipe a a m r
 id' m = tryAwait >>= maybe (lift m) (\x -> yield x >> id' m)
@@ -88,7 +88,7 @@ prop_finalizer_assoc xs = runWriter (runPurePipe_ p) == runWriter (runPurePipe_ 
   where
     p = (p1 >+> p2) >+> p3
     p' = p1 >+> (p2 >+> p3)
-    p1 = finally (mapM_ yield xs) (tell [Just 1])
+    p1 = finally (mapM_ yield xs) (tell [Just (1 :: Int)])
     p2 = void await
     p3 = tryAwait >>= lift . tell . return
 
@@ -97,14 +97,14 @@ prop_yield_failure = runWriter (runPurePipe_ p) == runWriter (runPurePipe_ p')
   where
     p = p1 >+> return ()
     p' = (p1 >+> idP) >+> return ()
-    p1 = yield () >> lift (tell [1])
+    p1 = yield () >> lift (tell [1 :: Int])
 
 prop_yield_failure_assoc :: Bool
 prop_yield_failure_assoc = runWriter (runPurePipe_ p) == runWriter (runPurePipe_ p')
   where
     p = p1 >+> (idP >+> return ())
     p' = (p1 >+> idP) >+> return ()
-    p1 = yield () >> lift (tell [1])
+    p1 = yield () >> lift (tell [1 :: Int])
 
 prop_bup_leak :: Bool
 prop_bup_leak = either (const False) (== ()) . runIdentity . runPurePipe $ p
@@ -114,13 +114,14 @@ prop_bup_leak = either (const False) (== ()) . runIdentity . runPurePipe $ p
 prop_lift_assoc :: Bool
 prop_lift_assoc = runWriter (runPurePipe_ p) == runWriter (runPurePipe_ p')
   where
-    p = (lift (tell [1]) >+> yield ()) >+> return ()
-    p' = lift (tell [1]) >+> (yield () >+> return ())
+    p = (lift (tell [1 :: Int]) >+> yield ()) >+> return ()
+    p' = lift (tell [1 :: Int]) >+> (yield () >+> return ())
 
 prop_loop_queue :: [Int] -> Bool
 prop_loop_queue xs =
   run (loopP (mapM_ (yield . Right) xs >> replicateM (length xs) await)) == map Right xs
 
+main :: IO ()
 main = defaultMain [
   testGroup "properties"
     [ testProperty "fold" prop_fold
