@@ -1,12 +1,12 @@
 import Control.Monad
-import Control.Monad.Identity
-import Control.Monad.Writer (tell, runWriter)
-import Control.Monad.Trans
+import Control.Monad.Trans.Writer (tell, runWriter)
+import Control.Monad.Trans.Class
 import Control.Pipe
 import Control.Pipe.Combinators (($$), tryAwait)
 import Control.Pipe.Exception
 import qualified Control.Pipe.Combinators as P
 import Data.Char
+import Data.Functor.Identity
 import Data.List
 import Test.Framework
 import Test.Framework.Providers.QuickCheck2

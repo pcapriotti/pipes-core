@@ -67,3 +67,16 @@ Library
                    , Control.Pipe.Monoidal
                    , Control.Category.Multiplicative
     Default-Language: Haskell2010
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs: tests
+  main-is: Tests.hs
+  build-depends: base >= 4 && < 5
+               , QuickCheck == 2.4.*
+               , test-framework == 0.6.*
+               , test-framework-quickcheck2 == 0.2.*
+               , test-framework-th-prime == 0.0.*
+               , transformers >= 0.2 && < 0.4
+               , pipes-core == 0.1.*
+  Default-Language: Haskell2010
