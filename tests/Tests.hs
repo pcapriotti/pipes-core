@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS -fno-warn-orphans #-}
 
 import Control.Monad
@@ -9,8 +10,11 @@ import Control.Pipe.Exception
 import qualified Control.Pipe.Combinators as P
 import Data.Functor.Identity
 import Data.List
-import Test.Framework
+
 import Test.Framework.Providers.QuickCheck2
+import Test.Framework.TH.Prime
+
+import Test.QuickCheck
 
 instance Show (a -> b) where
   show _ = "<function>"
@@ -48,9 +52,9 @@ prop_take n xs =
   run (P.fromList xs >+> P.take n $$ P.consume) ==
   Just (take n xs)
 
-prop_take_head :: Int -> [Int] -> Bool
-prop_take_head n xs =
-  run (P.fromList xs >+> P.take (n + 1) $$ await) ==
+prop_take_head :: Positive Int -> [Int] -> Bool
+prop_take_head (Positive n) xs =
+  run (P.fromList xs >+> P.take n $$ await) ==
   run (P.fromList xs $$ await)
 
 prop_drop :: Int -> [Int] -> Bool
@@ -122,25 +126,4 @@ prop_loop_queue xs =
   run (loopP (mapM_ (yield . Right) xs >> replicateM (length xs) await)) == map Right xs
 
 main :: IO ()
-main = defaultMain [
-  testGroup "properties"
-    [ testProperty "fold" prop_fold
-    , testProperty "id_finalizer" prop_id_finalizer
-    , testProperty "identity" prop_id
-    , testProperty "consume . fromList" prop_consume
-    , testProperty "take . fromList" prop_take
-    , testProperty "head . take == head" prop_take
-    , testProperty "drop . fromList" prop_take
-    , testProperty "pipeList == concatMap" prop_pipeList
-    , testProperty "takeWhile" prop_takeWhile
-    , testProperty "dropWhile" prop_dropWhile
-    , testProperty "groupBy" prop_groupBy
-    , testProperty "filter" prop_filter
-    , testProperty "finalizer assoc" prop_finalizer_assoc
-    , testProperty "yield failure" prop_yield_failure
-    , testProperty "yield failure assoc" prop_yield_failure_assoc
-    , testProperty "bup leak" prop_bup_leak
-    , testProperty "lift assoc" prop_lift_assoc
-    , testProperty "loop queue" prop_loop_queue
-    ]
-  ]
+main = $(defaultMainGenerator)
