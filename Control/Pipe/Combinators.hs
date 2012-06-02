@@ -79,7 +79,7 @@ nullP = return ()
 fold :: Monad m => (b -> a -> b) -> b -> Pipe a x m b
 fold f = go
   where
-    go x = tryAwait >>= maybe (return x) (go . f x)
+    go x = tryAwait >>= maybe (return x) (let y = f x in y `seq` go . y)
 
 -- | A variation of 'fold' without an initial value for the accumulator. This
 -- pipe doesn't return any value if no input values are received.
