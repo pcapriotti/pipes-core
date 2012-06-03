@@ -2,6 +2,8 @@ This library offers an abstraction similar in scope to
 iteratees/enumerators/enumeratees, but with different characteristics and
 naming conventions.
 
+[![Continuous Integration status][status-png]][status]
+
 Difference with traditional iteratees:
 
 * **Simpler semantics**: There is only one data type (`Pipe`), two primitives
@@ -27,4 +29,6 @@ Difference with traditional iteratees:
 
 This library is based on the [pipes][1] package by Gabriel Gonzalez.
 
+ [status-png]: https://secure.travis-ci.org/pcapriotti/pipes-core.png
+ [status]: http://travis-ci.org/pcapriotti/pipes-core
  [1]: http://hackage.haskell.org/package/pipes
