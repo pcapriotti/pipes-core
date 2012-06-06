@@ -9,6 +9,7 @@ module Control.Pipe.Exception (
   ) where
 
 import qualified Control.Exception as E
+import Control.Monad
 import Control.Pipe.Common
 import Control.Pipe.Internal
 import Prelude hiding (catch)
@@ -67,9 +68,10 @@ finally :: Monad m
         -> m s                    -- ^ finalizer action
         -> Pipe m a b u r
 finally p w = do
-  r <- onException p (masked w)
+  r <- finallyP p [liftM (const ()) w]
   masked w
   return r
+
 
 -- | Allocate a resource within the base monad, run a 'Pipe', then ensure the
 -- resource is released.
