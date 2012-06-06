@@ -100,7 +100,7 @@ emptyQueue :: Queue a
 emptyQueue = Queue [] []
 
 enqueue :: a -> Queue a -> Queue a
-enqueue x (Queue xs ys) = Queue (x : xs) ys
+enqueue x (Queue xs ys) = Queue xs (x : ys)
 
 dequeue :: Queue a -> (Queue a, Maybe a)
 dequeue (Queue (x : xs) ys) = (Queue xs ys, Just x)

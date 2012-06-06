@@ -1,3 +1,9 @@
+## Version 0.1.1 (unreleased)
+
+- Fixed bugs:
+      * \#4 - Bug in loopP's Queue
+      * \#6 - Not enough strictness in fold
+
 ## Version 0.1.0 (08 Apr 2012)
 
 - Significant simplification of the internals.
