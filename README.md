@@ -29,6 +29,6 @@ Difference with traditional iteratees:
 
 This library is based on the [pipes][1] package by Gabriel Gonzalez.
 
- [status-png]: https://secure.travis-ci.org/pcapriotti/pipes-core.png
+ [status-png]: https://secure.travis-ci.org/pcapriotti/pipes-core.png?branch=master
  [status]: http://travis-ci.org/pcapriotti/pipes-core
  [1]: http://hackage.haskell.org/package/pipes
