@@ -155,7 +155,7 @@ catchP (Yield x p w) h' = Yield x (catchP p h') w'
 --
 -- 'await' blocks until input is ready.
 await :: Monad m => Pipe a b m a
-await = Await return throwP
+await = Await return (\e -> Throw e await [])
 
 -- | Pass output downstream within the 'Pipe' monad.
 --
@@ -186,10 +186,7 @@ masked = liftP Masked
 -- >   x <- await
 -- >   yield (f x)
 pipe :: Monad m => (a -> b) -> Pipe a b m r
-pipe f = p
-  where
-    p = Await (\x -> Yield (f x) p [])
-              (\e -> Throw e p [])
+pipe f = forever $ await >>= yield . f
 
 -- | The identity pipe.
 idP :: Monad m => Pipe a a m r
