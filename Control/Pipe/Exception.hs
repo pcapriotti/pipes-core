@@ -9,6 +9,7 @@ module Control.Pipe.Exception (
   ) where
 
 import qualified Control.Exception as E
+import Control.Monad
 import Control.Pipe.Common
 import Prelude hiding (catch)
 
@@ -57,7 +58,7 @@ onException :: Monad m
             => Pipe a b m r       -- ^ 'Pipe' to run first
             -> Pipe a b m s       -- ^ 'Pipe' to run if an exception happens
             -> Pipe a b m r
-onException p w = catchP p $ \e -> w >> throw e
+onException p w = catchP p $ \e -> w >> throwP e
 
 -- | A specialized variant of 'bracket' with just a computation to run
 -- afterwards.
@@ -66,7 +67,7 @@ finally :: Monad m
         -> m s                    -- ^ finalizer action
         -> Pipe a b m r
 finally p w = do
-  r <- onException p (masked w)
+  r <- finallyP p [liftM (const ()) w]
   masked w
   return r
 

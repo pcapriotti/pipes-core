@@ -46,6 +46,7 @@ module Control.Pipe.Common (
   -- For normal use, prefer the functions defined in 'Control.Pipe.Exception'.
   throwP,
   catchP,
+  finallyP,
   liftP,
   ) where
 
@@ -79,9 +80,6 @@ data MaskState
   | Unmasked   -- ^ Action to be run with asynchronous exceptions unmasked.
 
 type Finalizer m = [m ()]
-
-addFinalizer :: m () -> Finalizer m -> Finalizer m
-addFinalizer m w = w ++ [m]
 
 -- | The base type for pipes.
 --
@@ -145,11 +143,20 @@ catchP (Await k h) h' = Await (\a -> catchP (k a) h')
                               (\e -> catchP (h e) h')
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
                           (\e -> catchP (h e) h')
-catchP (Yield x p w) h' = Yield x (catchP p h') w'
+catchP (Yield x p w) h' = Yield x (catchP p h') w
+
+-- | Add a finalizer to a pipe.
+finallyP :: Monad m
+         => Pipe a b m r
+         -> Finalizer m
+         -> Pipe a b m r
+finallyP p w = go p
   where
-    w' = addFinalizer (fin $ h' bp) w
-    fin (M _ m _) = m >>= fin
-    fin _ = return ()
+    go (Pure r w') = Pure r (w ++ w')
+    go (Throw e p' w') = Throw e p' (w ++ w')
+    go (Yield x p' w') = Yield x p' (w ++ w')
+    go (M s m h) = M s (liftM go m) (go . h)
+    go (Await k h) = Await (go . k) (go . h)
 
 -- | Wait for input from upstream within the 'Pipe' monad.
 --
