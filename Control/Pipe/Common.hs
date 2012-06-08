@@ -297,7 +297,7 @@ runPipe p = E.mask $ \restore -> run restore p
 -- | Convert a pipe with unawaits into a composable pipe.
 --
 -- Note that all leftovers remaining after termination are discarded.
-runUnawaits :: Monad m => Pipe a a b m r -> Pipe Void a b m r
+runUnawaits :: Monad m => Pipe a a b m r -> Pipe l a b m r
 runUnawaits = go []
   where
     go _ (Pure r w) = Pure r w
