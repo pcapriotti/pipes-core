@@ -22,7 +22,7 @@ import Prelude hiding ((.), id)
 -- | Category of pipes.
 --
 -- Composition corresponds to '<+<' and identity to 'idP'.
-newtype PipeC m r a b = PipeC { unPipeC :: Pipe a b m r }
+newtype PipeC m r a b = PipeC { unPipeC :: Pipe Void a b m r }
 
 instance Monad m => Category (PipeC m r) where
   id = PipeC idP

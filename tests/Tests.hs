@@ -19,7 +19,7 @@ import Test.QuickCheck
 instance Show (a -> b) where
   show _ = "<function>"
 
-id' :: Monad m => m r -> Pipe a a m r
+id' :: Monad m => m r -> Pipe l a a m r
 id' m = tryAwait >>= maybe (lift m) (\x -> yield x >> id' m)
 
 prop_fold :: (Int -> Int -> Int) -> Int -> [Int] -> Bool
@@ -39,7 +39,7 @@ prop_id n = run p == Just n
         id' (return Nothing) >+>
         liftM Just await
 
-run :: Pipe () Void Identity r -> r
+run :: Pipeline Identity r -> r
 run = runIdentity . runPurePipe_
 
 prop_consume :: [Int] -> Bool

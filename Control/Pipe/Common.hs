@@ -14,13 +14,14 @@ module Control.Pipe.Common (
   -- @do@ notation. Since 'Pipe' is also a monad trnasformer, you can use
   -- 'lift' to invoke the base monad. For example:
   --
-  -- > check :: Pipe a a IO r
+  -- > check :: Pipe l a a IO r
   -- > check = forever $ do
   -- >   x <- await
   -- >   lift $ putStrLn $ "Can " ++ show x ++ " pass?"
   -- >   ok <- lift $ read <$> getLine
   -- >   when ok $ yield x
   await,
+  unawait,
   yield,
   masked,
 
@@ -90,25 +91,26 @@ type Finalizer m = [m ()]
 --  [@m@] The base monad.
 --
 --  [@r@] The type of the monad's final result.
-data Pipe a b m r
+data Pipe l a b m r
   = Pure r (Finalizer m)
-  | Await (a -> Pipe a b m r)
-          (SomeException -> Pipe a b m r)
-  | M MaskState (m (Pipe a b m r))
-                (SomeException -> Pipe a b m r)
-  | Yield b (Pipe a b m r) (Finalizer m)
-  | Throw SomeException (Pipe a b m r) (Finalizer m)
+  | Await (a -> Pipe l a b m r)
+          (SomeException -> Pipe l a b m r)
+  | Unawait l (Pipe l a b m r)
+  | M MaskState (m (Pipe l a b m r))
+                (SomeException -> Pipe l a b m r)
+  | Yield b (Pipe l a b m r) (Finalizer m)
+  | Throw SomeException (Pipe l a b m r) (Finalizer m)
 
 -- | A pipe that can only produce values.
-type Producer b m = Pipe () b m
+type Producer l b m = Pipe l () b m
 
 -- | A pipe that can only consume values.
-type Consumer a m = Pipe a Void m
+type Consumer l a m = Pipe l a Void m
 
 -- | A self-contained pipeline that is ready to be run.
-type Pipeline m = Pipe () Void m
+type Pipeline m = Pipe Void () Void m
 
-instance Monad m => Monad (Pipe a b m) where
+instance Monad m => Monad (Pipe l a b m) where
   return r = Pure r []
   Pure r w >>= f = case f r of
     Pure r' w' -> Pure r' (w ++ w')
@@ -116,40 +118,42 @@ instance Monad m => Monad (Pipe a b m) where
       where
         run m p = M Masked (m >> return p) throwP
   Await k h >>= f = Await (k >=> f) (h >=> f)
+  Unawait x p >>= f = Unawait x (p >>= f)
   M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
   Yield x p w >>= f = Yield x (p >>= f) w
   Throw e p w >>= f = Throw e (p >>= f) w
 
-instance Monad m => Functor (Pipe a b m) where
+instance Monad m => Functor (Pipe l a b m) where
   fmap = liftM
 
-instance Monad m => Applicative (Pipe a b m) where
+instance Monad m => Applicative (Pipe l a b m) where
   pure = return
   (<*>) = ap
 
 -- | Throw an exception within the 'Pipe' monad.
-throwP :: Monad m => SomeException -> Pipe a b m r
+throwP :: Monad m => SomeException -> Pipe l a b m r
 throwP e = p
   where p = Throw e p []
 
 -- | Catch an exception within the pipe monad.
 catchP :: Monad m
-       => Pipe a b m r
-       -> (SomeException -> Pipe a b m r)
-       -> Pipe a b m r
+       => Pipe l a b m r
+       -> (SomeException -> Pipe l a b m r)
+       -> Pipe l a b m r
 catchP (Pure r w) _ = Pure r w
 catchP (Throw e _ w) h = protect w (h e)
 catchP (Await k h) h' = Await (\a -> catchP (k a) h')
                               (\e -> catchP (h e) h')
+catchP (Unawait x p) h = Unawait x (catchP p h)
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
                           (\e -> catchP (h e) h')
 catchP (Yield x p w) h' = Yield x (catchP p h') w
 
 -- | Add a finalizer to a pipe.
 finallyP :: Monad m
-         => Pipe a b m r
+         => Pipe l a b m r
          -> Finalizer m
-         -> Pipe a b m r
+         -> Pipe l a b m r
 finallyP p w = go p
   where
     go (Pure r w') = Pure r (w ++ w')
@@ -157,34 +161,38 @@ finallyP p w = go p
     go (Yield x p' w') = Yield x p' (w ++ w')
     go (M s m h) = M s (liftM go m) (go . h)
     go (Await k h) = Await (go . k) (go . h)
+    go (Unawait x p') = Unawait x (go p')
 
 -- | Wait for input from upstream within the 'Pipe' monad.
 --
 -- 'await' blocks until input is ready.
-await :: Monad m => Pipe a b m a
+await :: Monad m => Pipe l a b m a
 await = Await return (\e -> Throw e await [])
+
+unawait :: Monad m => a -> Pipe a a b m ()
+unawait x = Unawait x (return ())
 
 -- | Pass output downstream within the 'Pipe' monad.
 --
 -- 'yield' blocks until the downstream pipe calls 'await' again.
-yield :: Monad m => b -> Pipe a b m ()
+yield :: Monad m => b -> Pipe l a b m ()
 yield x = Yield x (return ()) []
 
 -- | Execute an action in the base monad with the given 'MaskState'.
-liftP :: Monad m => MaskState -> m r -> Pipe a b m r
+liftP :: Monad m => MaskState -> m r -> Pipe l a b m r
 liftP s m = M s (liftM return m) throwP
 
-instance MonadTrans (Pipe a b) where
+instance MonadTrans (Pipe l a b) where
   lift = liftP Unmasked
 
-instance MonadIO m => MonadIO (Pipe a b m) where
+instance MonadIO m => MonadIO (Pipe l a b m) where
   liftIO = lift . liftIO
 
 -- | Execute an action in the base monad with asynchronous exceptions masked.
 --
 -- This function is effective only if the 'Pipeline' is run with 'runPipe',
 -- otherwise it is identical to 'lift'
-masked :: Monad m => m r -> Pipe a b m r
+masked :: Monad m => m r -> Pipe l a b m r
 masked = liftP Masked
 
 -- | Convert a pure function into a pipe.
@@ -192,31 +200,33 @@ masked = liftP Masked
 -- > pipe = forever $ do
 -- >   x <- await
 -- >   yield (f x)
-pipe :: Monad m => (a -> b) -> Pipe a b m r
+pipe :: Monad m => (a -> b) -> Pipe l a b m r
 pipe f = forever $ await >>= yield . f
 
 -- | The identity pipe.
-idP :: Monad m => Pipe a a m r
+idP :: Monad m => Pipe l a a m r
 idP = pipe id
 
 -- | The 'discard' pipe silently discards all input fed to it.
-discard :: Monad m => Pipe a b m r
+discard :: Monad m => Pipe l a b m r
 discard = forever await
 
-protect :: Monad m => Finalizer m -> Pipe a b m r -> Pipe a b m r
+protect :: Monad m => Finalizer m -> Pipe l a b m r -> Pipe l a b m r
 protect w = go
   where
     go (Pure r w') = Pure r (w ++ w')
     go (Await k h) = Await k h
+    go (Unawait x p) = Unawait x (go p)
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (Throw e p' w') = Throw e (go p') (w ++ w')
 
-handleBP :: Monad m => r -> Pipe a b m r -> Pipe a b m r
+handleBP :: Monad m => r -> Pipe l a b m r -> Pipe l a b m r
 handleBP r = go
   where
     go (Pure r' w) = Pure r' w
     go (Await k h) = Await k h
+    go (Unawait x p) = Unawait x (go p)
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w) = Yield x (go p') w
     go (Throw e p' w)
@@ -231,13 +241,14 @@ isBrokenPipe e = isJust (E.fromException e :: Maybe BrokenPipe)
 
 infixl 9 >+>
 -- | Left to right pipe composition.
-(>+>) :: Monad m => Pipe a b m r -> Pipe b c m r -> Pipe a c m r
+(>+>) :: Monad m => Pipe l a b m r -> Pipe Void b c m r -> Pipe l a c m r
 p1 >+> p2 = case (p1, p2) of
   -- downstream step
   (_, Yield x p2' w) -> Yield x (p1 >+> p2') w
   (_, Throw e p2' w) -> Throw e (p1 >+> p2') w
   (_, M s m h2) -> M s (m >>= \p2' -> return $ p1 >+> p2')
                        (\e -> p1 >+> h2 e)
+  (_, Unawait x _) -> absurd x
   (_, Pure r w) -> Pure r w
 
   -- upstream step
@@ -245,6 +256,7 @@ p1 >+> p2 = case (p1, p2) of
                                (\e -> h1 e >+> p2)
   (Await k h1, Await _ _) -> Await (\a -> k a >+> p2)
                                    (\e -> h1 e >+> p2)
+  (Unawait x p1', Await _ _) -> Unawait x (p1' >+> p2)
   (Pure r w, Await _ h2) -> p1 >+> handleBP r (protect w (h2 bp))
 
   -- flow data
@@ -253,7 +265,7 @@ p1 >+> p2 = case (p1, p2) of
 
 infixr 9 <+<
 -- | Right to left pipe composition.
-(<+<) :: Monad m => Pipe b c m r -> Pipe a b m r -> Pipe a c m r
+(<+<) :: Monad m => Pipe Void b c m r -> Pipe l a b m r -> Pipe l a c m r
 p2 <+< p1 = p1 >+> p2
 
 -- | Run a self-contained 'Pipeline', converting it to an action in the base
@@ -270,6 +282,7 @@ runPipe p = E.mask $ \restore -> run restore p
       where
         go (Pure r w) = fin w >> return r
         go (Await k _) = go (k ())
+        go (Unawait x _) = absurd x
         go (Yield x _ _) = absurd x
         go (Throw e _ w) = fin w >> E.throwIO e
         go (M s m h) = try s m >>= \r -> case r of
@@ -293,6 +306,7 @@ runPipe p = E.mask $ \restore -> run restore p
 runPurePipe :: Monad m => Pipeline m r -> m (Either SomeException r)
 runPurePipe (Pure r w) = sequence_ w >> return (Right r)
 runPurePipe (Await k _) = runPurePipe $ k ()
+runPurePipe (Unawait x _) = absurd x
 runPurePipe (Yield x _ _) = absurd x
 runPurePipe (Throw e _ w) = sequence_ w >> return (Left e)
 runPurePipe (M _ m _) = m >>= runPurePipe
