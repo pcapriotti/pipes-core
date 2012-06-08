@@ -33,6 +33,7 @@ module Control.Pipe.Common (
   (<+<),
 
   -- ** Running pipes
+  runUnawaits,
   runPipe,
   runPurePipe,
   runPurePipe_,
@@ -293,6 +294,19 @@ runPipe p = E.mask $ \restore -> run restore p
           Unmasked -> restore m
           _ -> m
 
+-- | Convert a pipe with unawaits into a composable pipe.
+--
+-- Note that all leftovers remaining after termination are discarded.
+runUnawaits :: Monad m => Pipe a a b m r -> Pipe Void a b m r
+runUnawaits = go []
+  where
+    go _ (Pure r w) = Pure r w
+    go (x:xs) (Await k _) = go xs (k x)
+    go [] (Await k h) = Await (go [] . k) (go [] . h)
+    go xs (Unawait x p) = go (x : xs) p
+    go xs (M s m h) = M s (liftM (go xs) m) (go xs . h)
+    go xs (Yield x p w) = Yield x (go xs p) w
+    go xs (Throw e p w) = Throw e (go xs p) w
 
 -- | Run a self-contained pipeline over an arbitrary monad, with fewer
 -- exception-safety guarantees than 'runPipe'.
