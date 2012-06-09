@@ -162,3 +162,4 @@ feed a (Throw e p w) = Throw e (feed a p) w
 feed a (M s m h) = M s (liftM (feed a) m) (feed a . h)
 feed a (Await k _) = k a
 feed _ (Unawait x _) = absurd x
+feed a (Flush p) = Flush (feed a p)

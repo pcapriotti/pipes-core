@@ -24,6 +24,7 @@ module Control.Pipe.Common (
   unawait,
   yield,
   masked,
+  flush,
 
   -- ** Basic combinators
   pipe,
@@ -80,6 +81,9 @@ yield x = Yield x (return ()) []
 masked :: Monad m => m r -> Pipe l a b m r
 masked = liftP Masked
 
+flush :: Monad m => Pipe l a b m ()
+flush = Flush (return ())
+
 -- | Convert a pure function into a pipe.
 --
 -- > pipe = forever $ do
@@ -102,6 +106,7 @@ handleBP r = go
     go (Pure r' w) = Pure r' w
     go (Await k h) = Await k h
     go (Unawait x p) = Unawait x (go p)
+    go (Flush p) = Flush (go p)
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w) = Yield x (go p') w
     go (Throw e p' w)
@@ -124,6 +129,7 @@ p1 >+> p2 = case (p1, p2) of
   (_, M s m h2) -> M s (m >>= \p2' -> return $ p1 >+> p2')
                        (\e -> p1 >+> h2 e)
   (_, Unawait x _) -> absurd x
+  (_, Flush p2') -> Flush (throwP bp >+> p2')
   (_, Pure r w) -> Pure r w
 
   -- upstream step
@@ -132,6 +138,7 @@ p1 >+> p2 = case (p1, p2) of
   (Await k h1, Await _ _) -> Await (\a -> k a >+> p2)
                                    (\e -> h1 e >+> p2)
   (Unawait x p1', Await _ _) -> Unawait x (p1' >+> p2)
+  (Flush p1', Await _ _) -> Flush (p1' >+> p2)
   (Pure r w, Await _ h2) -> p1 >+> handleBP r (protectP w (h2 bp))
 
   -- flow data
@@ -158,6 +165,7 @@ runPipe p = E.mask $ \restore -> run restore p
         go (Pure r w) = fin w >> return r
         go (Await k _) = go (k ())
         go (Unawait x _) = absurd x
+        go (Flush p') = go p'
         go (Yield x _ _) = absurd x
         go (Throw e _ w) = fin w >> E.throwIO e
         go (M s m h) = try s m >>= \r -> case r of
@@ -178,6 +186,7 @@ runUnawaits = go []
     go (x:xs) (Await k _) = go xs (k x)
     go [] (Await k h) = Await (go [] . k) (go [] . h)
     go xs (Unawait x p) = go (x : xs) p
+    go xs (Flush p) = go xs p
     go xs (M s m h) = M s (liftM (go xs) m) (go xs . h)
     go xs (Yield x p w) = Yield x (go xs p) w
     go xs (Throw e p w) = Throw e (go xs p) w
@@ -195,6 +204,7 @@ runPurePipe :: Monad m => Pipeline m r -> m (Either SomeException r)
 runPurePipe (Pure r w) = sequence_ w >> return (Right r)
 runPurePipe (Await k _) = runPurePipe $ k ()
 runPurePipe (Unawait x _) = absurd x
+runPurePipe (Flush p) = runPurePipe p
 runPurePipe (Yield x _ _) = absurd x
 runPurePipe (Throw e _ w) = sequence_ w >> return (Left e)
 runPurePipe (M _ m _) = m >>= runPurePipe

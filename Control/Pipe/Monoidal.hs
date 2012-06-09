@@ -36,6 +36,7 @@ firstP (Yield x p w) = Yield (Left x) (firstP p) w
 firstP (Throw e p w) = Throw e (firstP p) w
 firstP (M s m h) = M s (liftM firstP m) (firstP . h)
 firstP (Unawait x p) = Unawait x (firstP p)
+firstP (Flush p) = Flush (firstP p)
 firstP (Await k h) = go
   where
     go = Await (either (firstP . k)
@@ -51,6 +52,7 @@ secondP (Yield x p w) = Yield (Right x) (secondP p) w
 secondP (Throw e p w) = Throw e (secondP p) w
 secondP (M s m h) = M s (liftM secondP m) (secondP . h)
 secondP (Unawait x p) = Unawait x (secondP p)
+secondP (Flush p) = Flush (secondP p)
 secondP (Await k h) = go
   where
     go = Await (either (yield . Left >=> const go)
@@ -119,6 +121,7 @@ loopP = go emptyQueue
     go _ (Pure r w) = Pure r w
     go q (Yield (Right x) p _) = go (enqueue x q) p
     go _ (Unawait x _) = absurd x
+    go q (Flush p) = Flush (go q p)
     go q (Throw e p w) = Throw e (go q p) w
     go q (Yield (Left x) p w) = Yield x (go q p) w
     go q (M s m h) = M s (liftM (go q) m) (go q . h)

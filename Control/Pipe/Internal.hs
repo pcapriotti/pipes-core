@@ -54,6 +54,7 @@ data Pipe l a b m r
   | Await (a -> Pipe l a b m r)
           (SomeException -> Pipe l a b m r)
   | Unawait l (Pipe l a b m r)
+  | Flush (Pipe l a b m r)
   | M MaskState (m (Pipe l a b m r))
                 (SomeException -> Pipe l a b m r)
   | Yield b (Pipe l a b m r) (Finalizer m)
@@ -61,16 +62,22 @@ data Pipe l a b m r
 
 instance Monad m => Monad (Pipe l a b m) where
   return r = Pure r []
-  Pure r w >>= f = case f r of
-    Pure r' w' -> Pure r' (w ++ w')
-    p'         -> foldr run p' w
-      where
-        run m p = M Masked (m >> return p) throwP
+  Pure r w >>= f = addFinalizer w (f r)
   Await k h >>= f = Await (k >=> f) (h >=> f)
   Unawait x p >>= f = Unawait x (p >>= f)
+  Flush p >>= f = Flush (p >>= f)
   M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
   Yield x p w >>= f = Yield x (p >>= f) w
   Throw e p w >>= f = Throw e (p >>= f) w
+
+addFinalizer :: Monad m
+             => Finalizer m
+             -> Pipe l a b m r
+             -> Pipe l a b m r
+addFinalizer w (Pure r w') = Pure r (w ++ w')
+addFinalizer w p = foldr go p w
+  where
+    go m p' = M Masked (m >> return p') throwP
 
 instance Monad m => Functor (Pipe l a b m) where
   fmap = liftM
@@ -104,6 +111,7 @@ catchP (Throw e _ w) h = protectP w (h e)
 catchP (Await k h) h' = Await (\a -> catchP (k a) h')
                               (\e -> catchP (h e) h')
 catchP (Unawait x p) h = Unawait x (catchP p h)
+catchP (Flush p) h = Flush (catchP p h)
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
                           (\e -> catchP (h e) h')
 catchP (Yield x p w) h' = Yield x (catchP p h') w
@@ -121,6 +129,7 @@ finallyP p w = go p
     go (M s m h) = M s (liftM go m) (go . h)
     go (Await k h) = Await (go . k) (go . h)
     go (Unawait x p') = Unawait x (go p')
+    go (Flush p') = Flush (go p')
 
 protectP :: Monad m => Finalizer m -> Pipe l a b m r -> Pipe l a b m r
 protectP w = go
@@ -131,3 +140,4 @@ protectP w = go
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (Throw e p' w') = Throw e (go p') (w ++ w')
+    go (Flush p') = addFinalizer w p'
