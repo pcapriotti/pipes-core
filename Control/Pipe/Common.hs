@@ -1,7 +1,7 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts, Rank2Types, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts, Rank2Types, ScopedTypeVariables #-}
 module Control.Pipe.Common (
   -- ** Types
-  Pipe(..),
+  Pipe,
   Producer,
   Consumer,
   Pipeline,
@@ -35,71 +35,17 @@ module Control.Pipe.Common (
   runPipe,
   runPurePipe,
   runPurePipe_,
-
-  -- ** Low level types
-  BrokenPipe,
-  MaskState(..),
-
-  -- ** Low level primitives
-  --
-  -- | These functions can be used to implement exception-handling combinators.
-  -- For normal use, prefer the functions defined in 'Control.Pipe.Exception'.
-  throwP,
-  catchP,
-  liftP,
   ) where
 
-import Control.Applicative
 import Control.Category
-import Control.Exception (SomeException, Exception)
+import Control.Exception (SomeException)
 import qualified Control.Exception.Lifted as E
+import Control.Pipe.Internal
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Control
 import Data.Maybe
-import Data.Typeable
 import Data.Void
 import Prelude hiding (id, (.), catch)
-
--- | The 'BrokenPipe' exception is used to signal termination of the
--- upstream portion of a 'Pipeline' before the current pipe
---
--- A 'BrokenPipe' exception can be caught to perform cleanup actions
--- immediately before termination, like returning a result or yielding
--- additional values.
-data BrokenPipe = BrokenPipe
-  deriving (Show, Typeable)
-
-instance Exception BrokenPipe
-
--- | Type of action in the base monad.
-data MaskState
-  = Masked     -- ^ Action to be run with asynchronous exceptions masked.
-  | Unmasked   -- ^ Action to be run with asynchronous exceptions unmasked.
-
-type Finalizer m = [m ()]
-
-addFinalizer :: m () -> Finalizer m -> Finalizer m
-addFinalizer m w = w ++ [m]
-
--- | The base type for pipes.
---
---  [@a@] The type of input received fom upstream pipes.
---
---  [@b@] The type of output delivered to downstream pipes.
---
---  [@m@] The base monad.
---
---  [@r@] The type of the monad's final result.
-data Pipe a b m r
-  = Pure r (Finalizer m)
-  | Await (a -> Pipe a b m r)
-          (SomeException -> Pipe a b m r)
-  | M MaskState (m (Pipe a b m r))
-                (SomeException -> Pipe a b m r)
-  | Yield b (Pipe a b m r) (Finalizer m)
-  | Throw SomeException (Pipe a b m r) (Finalizer m)
 
 -- | A pipe that can only produce values.
 type Producer b m = Pipe () b m
@@ -109,47 +55,6 @@ type Consumer a m = Pipe a Void m
 
 -- | A self-contained pipeline that is ready to be run.
 type Pipeline m = Pipe () Void m
-
-instance Monad m => Monad (Pipe a b m) where
-  return r = Pure r []
-  Pure r w >>= f = case f r of
-    Pure r' w' -> Pure r' (w ++ w')
-    p'         -> foldr run p' w
-      where
-        run m p = M Masked (m >> return p) throwP
-  Await k h >>= f = Await (k >=> f) (h >=> f)
-  M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
-  Yield x p w >>= f = Yield x (p >>= f) w
-  Throw e p w >>= f = Throw e (p >>= f) w
-
-instance Monad m => Functor (Pipe a b m) where
-  fmap = liftM
-
-instance Monad m => Applicative (Pipe a b m) where
-  pure = return
-  (<*>) = ap
-
--- | Throw an exception within the 'Pipe' monad.
-throwP :: Monad m => SomeException -> Pipe a b m r
-throwP e = p
-  where p = Throw e p []
-
--- | Catch an exception within the pipe monad.
-catchP :: Monad m
-       => Pipe a b m r
-       -> (SomeException -> Pipe a b m r)
-       -> Pipe a b m r
-catchP (Pure r w) _ = Pure r w
-catchP (Throw e _ w) h = protect w (h e)
-catchP (Await k h) h' = Await (\a -> catchP (k a) h')
-                              (\e -> catchP (h e) h')
-catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
-                          (\e -> catchP (h e) h')
-catchP (Yield x p w) h' = Yield x (catchP p h') w'
-  where
-    w' = addFinalizer (fin $ h' bp) w
-    fin (M _ m _) = m >>= fin
-    fin _ = return ()
 
 -- | Wait for input from upstream within the 'Pipe' monad.
 --
@@ -162,16 +67,6 @@ await = Await return (\e -> Throw e await [])
 -- 'yield' blocks until the downstream pipe calls 'await' again.
 yield :: Monad m => b -> Pipe a b m ()
 yield x = Yield x (return ()) []
-
--- | Execute an action in the base monad with the given 'MaskState'.
-liftP :: Monad m => MaskState -> m r -> Pipe a b m r
-liftP s m = M s (liftM return m) throwP
-
-instance MonadTrans (Pipe a b) where
-  lift = liftP Unmasked
-
-instance MonadIO m => MonadIO (Pipe a b m) where
-  liftIO = lift . liftIO
 
 -- | Execute an action in the base monad with asynchronous exceptions masked.
 --
@@ -195,17 +90,6 @@ idP = pipe id
 -- | The 'discard' pipe silently discards all input fed to it.
 discard :: Monad m => Pipe a b m r
 discard = forever await
-
-protect :: Monad m => Finalizer m -> Pipe a b m r -> Pipe a b m r
-protect w p = M Masked (return $! go p) rethrow
-  where
-    go (Pure r w') = Pure r (w ++ w')
-    go (Await k h) = Await k h
-    go (M s m h) = M s (liftM go m) (go . h)
-    go (Yield x p' w') = Yield x (go p') (w ++ w')
-    go (Throw e p' w') = Throw e (go p') (w ++ w')
-
-    rethrow e = Throw e (rethrow e) w
 
 handleBP :: Monad m => r -> Pipe a b m r -> Pipe a b m r
 handleBP r = go
@@ -240,11 +124,11 @@ p1 >+> p2 = case (p1, p2) of
                                (\e -> h1 e >+> p2)
   (Await k h1, Await _ _) -> Await (\a -> k a >+> p2)
                                    (\e -> h1 e >+> p2)
-  (Pure r w, Await _ h2) -> p1 >+> handleBP r (protect w (h2 bp))
+  (Pure r w, Await _ h2) -> p1 >+> handleBP r (protectP w (h2 bp))
 
   -- flow data
-  (Yield x p1' w, Await k _) -> p1' >+> protect w (k x)
-  (Throw e p1' w, Await _ h) -> p1' >+> protect w (h e)
+  (Yield x p1' w, Await k _) -> p1' >+> protectP w (k x)
+  (Throw e p1' w, Await _ h) -> p1' >+> protectP w (h e)
 
 infixr 9 <+<
 -- | Right to left pipe composition.

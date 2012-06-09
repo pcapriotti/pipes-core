@@ -10,6 +10,7 @@ module Control.Pipe.Exception (
 
 import qualified Control.Exception as E
 import Control.Pipe.Common
+import Control.Pipe.Internal
 import Prelude hiding (catch)
 
 -- | Catch an exception within the 'Pipe' monad.

@@ -64,6 +64,7 @@ Library
                    , Control.Pipe.Combinators
                    , Control.Pipe.Common
                    , Control.Pipe.Exception
+                   , Control.Pipe.Internal
                    , Control.Pipe.Monoidal
                    , Control.Category.Multiplicative
     Default-Language: Haskell2010
