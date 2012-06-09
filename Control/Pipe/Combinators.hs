@@ -42,6 +42,7 @@ module Control.Pipe.Combinators (
 import Control.Applicative
 import Control.Monad
 import Control.Pipe
+import Control.Pipe.Internal
 import Control.Pipe.Exception
 import Data.Maybe
 import Data.Void

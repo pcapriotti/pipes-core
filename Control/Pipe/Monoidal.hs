@@ -23,6 +23,7 @@ import Control.Category.Braided
 import Control.Category.Monoidal
 import Control.Monad
 import Control.Pipe.Common
+import Control.Pipe.Internal
 import Data.Void
 
 -- | Create a 'Pipe' that behaves like the given 'Pipe' of the left component
