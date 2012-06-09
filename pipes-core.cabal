@@ -1,5 +1,5 @@
 Name: pipes-core
-Version: 0.1.1
+Version: 0.2.0
 Cabal-Version: >=1.10.1
 Build-Type: Simple
 License: BSD3
@@ -79,5 +79,5 @@ test-suite tests
                , test-framework-quickcheck2 == 0.2.*
                , test-framework-th-prime == 0.0.*
                , transformers >= 0.2 && < 0.4
-               , pipes-core == 0.1.*
+               , pipes-core == 0.2.*
   Default-Language: Haskell2010
