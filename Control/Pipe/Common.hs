@@ -200,7 +200,7 @@ discard :: Monad m => Pipe a b m r
 discard = forever await
 
 protect :: Monad m => Finalizer m -> Pipe a b m r -> Pipe a b m r
-protect w = go
+protect w p = M Masked (return $! go p) (`Throw` w)
   where
     go (Pure r w') = Pure r (w ++ w')
     go (Throw e w') = Throw e (w ++ w')
