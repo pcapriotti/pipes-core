@@ -85,7 +85,7 @@ finallyP p w = go p
     go (Await k j h w') = Await (go . k) (go . j) (go . h) (w ++ w')
 
 protectP :: Monad m => Finalizer m -> Pipe m a b u r -> Pipe m a b u r
-protectP w = go
+protectP w p = M Masked (return $! go p) (`Throw` w)
   where
     go (Pure r w') = Pure r (w ++ w')
     go (Await k h j w') = Await k h j w'
