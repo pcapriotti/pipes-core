@@ -9,6 +9,7 @@ module Control.Pipe.Class (
   PipeD,
   withDefer,
   PipeL,
+  withUnawait,
   ) where
 
 import Control.Applicative
@@ -183,3 +184,6 @@ instance Monad m => MonadStreamUnawait (PipeL m) where
   unawait = PipeL . modify . (:)
 
   runUnawait = (`evalStateT` []) . unPipeL
+
+withUnawait :: MonadStream m => PipeL (BaseMonad m) a b u r -> m a b u r
+withUnawait = liftPipe . runUnawait

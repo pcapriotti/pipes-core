@@ -38,7 +38,6 @@ module Control.Pipe.Combinators (
 import Control.Applicative
 import Control.Monad
 import Control.Pipe
-import Control.Pipe.Internal
 import Control.Pipe.Class
 import Data.Maybe
 import Prelude hiding (until, take, drop, concatMap, filter, takeWhile, dropWhile, catch)
@@ -135,13 +134,5 @@ filter :: MonadStream m => (a -> Bool) -> m a a r r
 filter p = withDefer . forever $ takeWhile p
 
 -- | Feed an input element to a pipe.
-feed :: Monad m => a -> Pipe m a b u r -> Pipe m a b u r
-
--- this could be implemented as
--- feed x p = (yield x >> idP) >+> p
--- but this version is more efficient
-feed _ (Pure r w) = Pure r w
-feed a (Yield x p w) = Yield x (feed a p) w
-feed a (Throw e p w) = Throw e (feed a p) w
-feed a (M s m h) = M s (liftM (feed a) m) (feed a . h)
-feed a (Await k _ _) = k a
+feed :: MonadStream m => a -> Pipe (BaseMonad m) a b u r -> m a b u r
+feed x p = withUnawait $ unawait x >> liftPipe p
