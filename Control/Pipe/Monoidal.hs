@@ -34,12 +34,12 @@ firstP (Pure r w) = Pure r w
 firstP (Yield x p w) = Yield (Left x) (firstP p) w
 firstP (Throw e p w) = Throw e (firstP p) w
 firstP (M s m h) = M s (liftM firstP m) (firstP . h)
-firstP (Await k j h) = go
+firstP (Await k j h w) = go
   where
     go = Await (either (firstP . k)
                        (yield . Right >=> const go))
                (firstP . j)
-               (firstP . h)
+               (firstP . h) w
 
 -- | This function is the equivalent of 'firstP' for the right component.
 secondP :: Monad m
@@ -49,12 +49,12 @@ secondP (Pure r w) = Pure r w
 secondP (Yield x p w) = Yield (Right x) (secondP p) w
 secondP (Throw e p w) = Throw e (secondP p) w
 secondP (M s m h) = M s (liftM secondP m) (secondP . h)
-secondP (Await k j h) = go
+secondP (Await k j h w) = go
   where
     go = Await (either (yield . Left >=> const go)
                        (secondP . k))
                (secondP . j)
-               (secondP . h)
+               (secondP . h) w
 
 -- | Combine two pipes into a single pipe that behaves like the first on the
 -- left component, and the second on the right component.
@@ -121,6 +121,6 @@ loopP = go emptyQueue
     go q (Throw e p w) = Throw e (go q p) w
     go q (Yield (Left x) p w) = Yield x (go q p) w
     go q (M s m h) = M s (liftM (go q) m) (go q . h)
-    go q (Await k j h) = case dequeue q of
-      (q', Nothing) -> Await (go q' . k . Left) (go q' . j) (go q' . h)
+    go q (Await k j h w) = case dequeue q of
+      (q', Nothing) -> Await (go q' . k . Left) (go q' . j) (go q' . h) w
       (q', Just x) -> go q' $ k (Right x)

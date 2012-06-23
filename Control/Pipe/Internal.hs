@@ -54,6 +54,7 @@ data Pipe m a b u r
   | Await (a -> Pipe m a b u r)
           (u -> Pipe m a b u r)
           (SomeException -> Pipe m a b u r)
+          (Finalizer m)
   | M MaskState (m (Pipe m a b u r))
                 (SomeException -> Pipe m a b u r)
   | Yield b (Pipe m a b u r) (Finalizer m)
@@ -78,9 +79,9 @@ catchP :: Monad m
        -> Pipe m a b u r
 catchP (Pure r w) _ = Pure r w
 catchP (Throw e _ w) h = protectP w (h e)
-catchP (Await k j h) h' = Await (\a -> catchP (k a) h')
-                                (\u -> catchP (j u) h')
-                                (\e -> catchP (h e) h')
+catchP (Await k j h w) h' = Await (\a -> catchP (k a) h')
+                                  (\u -> catchP (j u) h')
+                                  (\e -> catchP (h e) h') w
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
                           (\e -> catchP (h e) h')
 catchP (Yield x p w) h' = Yield x (catchP p h') w
@@ -96,13 +97,13 @@ finallyP p w = go p
     go (Throw e p' w') = Throw e p' (w ++ w')
     go (Yield x p' w') = Yield x p' (w ++ w')
     go (M s m h) = M s (liftM go m) (go . h)
-    go (Await k j h) = Await (go . k) (go . j) (go . h)
+    go (Await k j h w') = Await (go . k) (go . j) (go . h) (w ++ w')
 
 protectP :: Monad m => Finalizer m -> Pipe m a b u r -> Pipe m a b u r
 protectP w = go
   where
     go (Pure r w') = Pure r (w ++ w')
-    go (Await k h j) = Await k h j
+    go (Await k h j w') = Await k h j w'
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (Throw e p' w') = Throw e (go p') (w ++ w')

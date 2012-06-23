@@ -60,7 +60,7 @@ class MonadStream m => MonadStreamUnawait m where
 
 instance Monad m => MonadStream (Pipe m) where
   type BaseMonad (Pipe m) = m
-  awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE [])
+  awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE []) []
   yield x = Yield x (return ()) []
   liftPipe = id
 
@@ -75,14 +75,14 @@ instance Monad m => MonadStream (Pipe m) where
     -- upstream step
     (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ compose p1' p2)
                                  (\e -> compose (h1 e) p2)
-    (Await k j h, Await { }) -> Await (\a -> compose (k a) p2)
-                                      (\u -> compose (j u) p2)
-                                      (\e -> compose (h e) p2)
+    (Await k j h w, Await { }) -> Await (\a -> compose (k a) p2)
+                                        (\u -> compose (j u) p2)
+                                        (\e -> compose (h e) p2) w
 
     -- flow data
-    (Yield x p1' w, Await k _ _) -> compose p1' (protectP w (k x))
-    (Pure r w, Await _ j _) -> compose p1 (protectP w (j r))
-    (Throw e p1' w, Await _ _ h) -> compose p1' (protectP w (h e))
+    (Yield x p1' w, Await k _ _ _) -> compose p1' (protectP w (k x))
+    (Pure r w, Await _ j _ _) -> compose p1 (protectP w (j r))
+    (Throw e p1' w, Await _ _ h _) -> compose p1' (protectP w (h e))
 
 instance Monad m => Monad3 (Pipe m) where
   return3 r = Pure r []
@@ -91,9 +91,9 @@ instance Monad m => Monad3 (Pipe m) where
     p'         -> foldr run p' w
       where
         run m p = M Masked (m >> return p) throwP
-  Await k j h `bind3` f = Await (\x -> k x `bind3` f)
-                                (\u -> j u `bind3` f)
-                                (\e -> h e `bind3` f)
+  Await k j h w `bind3` f = Await (\x -> k x `bind3` f)
+                                  (\u -> j u `bind3` f)
+                                  (\e -> h e `bind3` f) w
   M s m h `bind3` f = M s (m >>= \p -> return $ p `bind3` f)
                           (\e -> h e `bind3` f)
   Yield x p w `bind3` f = Yield x (p `bind3` f) w
@@ -123,8 +123,8 @@ handleDefers = go
   where
     go (Pure r w) = Pure (Right r) w
     go (Throw e p w) = Throw e (go p) w
-    go (Await k j h) = Await (go . k) j' (go . h)
-      where j' (Left x) = return (Left x) -- TODO call finalizer
+    go (Await k j h w) = Await (go . k) j' (go . h) w
+      where j' (Left x) = Pure (Left x) w
             j' (Right x) = go $ j x
     go (Yield b p w) = Yield b (go p) w
     go (M s m h) = M s (liftM go m) (go . h)
@@ -159,7 +159,7 @@ handleUnawaits = go
   where
     go x (Pure r w) = Pure (r, x) w
     go x (Throw e p w) = Throw e (go x p) w
-    go x (Await k j h) = Await (go x . k) j' (go x . h)
+    go x (Await k j h w) = Await (go x . k) j' (go x . h) w
       where j' (u, x') = go x' (j u)
     go x (Yield b p w) = Yield b (go x p) w
     go x (M s m h) = M s (liftM (go x) m) (go x . h)

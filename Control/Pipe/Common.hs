@@ -114,7 +114,7 @@ runPipe p = E.mask $ \restore -> run restore p
     run restore = go
       where
         go (Pure r w) = fin w >> return r
-        go (Await k _ _) = go (k ())
+        go (Await k _ _ _) = go (k ())
         go (Yield x _ _) = absurd x
         go (Throw e _ w) = fin w >> E.throwIO e
         go (M s m h) = try s m >>= \r -> case r of
@@ -137,7 +137,7 @@ runPipe p = E.mask $ \restore -> run restore p
 -- Any captured exception will be returned in the left component of the result.
 runPurePipe :: Monad m => Pipeline m u r -> m (Either SomeException r)
 runPurePipe (Pure r w) = sequence_ w >> return (Right r)
-runPurePipe (Await k _ _) = runPurePipe $ k ()
+runPurePipe (Await k _ _ _) = runPurePipe $ k ()
 runPurePipe (Yield x _ _) = absurd x
 runPurePipe (Throw e _ w) = sequence_ w >> return (Left e)
 runPurePipe (M _ m _) = m >>= runPurePipe
