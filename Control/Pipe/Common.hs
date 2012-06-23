@@ -94,12 +94,12 @@ addFinalizer m w = w ++ [m]
 --  [@r@] The type of the monad's final result.
 data Pipe a b m r
   = Pure r (Finalizer m)
-  | Throw SomeException (Finalizer m)
   | Await (a -> Pipe a b m r)
           (SomeException -> Pipe a b m r)
   | M MaskState (m (Pipe a b m r))
                 (SomeException -> Pipe a b m r)
   | Yield b (Pipe a b m r) (Finalizer m)
+  | Throw SomeException (Pipe a b m r) (Finalizer m)
 
 -- | A pipe that can only produce values.
 type Producer b m = Pipe () b m
@@ -114,14 +114,13 @@ instance Monad m => Monad (Pipe a b m) where
   return r = Pure r []
   Pure r w >>= f = case f r of
     Pure r' w' -> Pure r' (w ++ w')
-    Throw e w' -> Throw e (w ++ w')
     p'         -> foldr run p' w
       where
         run m p = M Masked (m >> return p) throwP
-  Throw e w >>= _ = Throw e w
   Await k h >>= f = Await (k >=> f) (h >=> f)
   M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
   Yield x p w >>= f = Yield x (p >>= f) w
+  Throw e p w >>= f = Throw e (p >>= f) w
 
 instance Monad m => Functor (Pipe a b m) where
   fmap = liftM
@@ -132,7 +131,8 @@ instance Monad m => Applicative (Pipe a b m) where
 
 -- | Throw an exception within the 'Pipe' monad.
 throwP :: Monad m => SomeException -> Pipe a b m r
-throwP e = Throw e []
+throwP e = p
+  where p = Throw e p []
 
 -- | Catch an exception within the pipe monad.
 catchP :: Monad m
@@ -140,10 +140,7 @@ catchP :: Monad m
        -> (SomeException -> Pipe a b m r)
        -> Pipe a b m r
 catchP (Pure r w) _ = Pure r w
-catchP (Throw e w) h = case h e of
-  Pure r w'   -> Pure r (w ++ w')
-  Throw e' w' -> Throw e' (w ++ w')
-  p'          -> mapM_ masked w >> p'
+catchP (Throw e _ w) h = protect w (h e)
 catchP (Await k h) h' = Await (\a -> catchP (k a) h')
                               (\e -> catchP (h e) h')
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
@@ -158,7 +155,7 @@ catchP (Yield x p w) h' = Yield x (catchP p h') w'
 --
 -- 'await' blocks until input is ready.
 await :: Monad m => Pipe a b m a
-await = Await return throwP
+await = Await return (\e -> Throw e await [])
 
 -- | Pass output downstream within the 'Pipe' monad.
 --
@@ -200,13 +197,15 @@ discard :: Monad m => Pipe a b m r
 discard = forever await
 
 protect :: Monad m => Finalizer m -> Pipe a b m r -> Pipe a b m r
-protect w p = M Masked (return $! go p) (`Throw` w)
+protect w p = M Masked (return $! go p) rethrow
   where
     go (Pure r w') = Pure r (w ++ w')
-    go (Throw e w') = Throw e (w ++ w')
     go (Await k h) = Await k h
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
+    go (Throw e p' w') = Throw e (go p') (w ++ w')
+
+    rethrow e = Throw e (rethrow e) w
 
 handleBP :: Monad m => r -> Pipe a b m r -> Pipe a b m r
 handleBP r = go
@@ -215,9 +214,9 @@ handleBP r = go
     go (Await k h) = Await k h
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w) = Yield x (go p') w
-    go (Throw e w)
+    go (Throw e p' w)
       | isBrokenPipe e = Pure r w
-      | otherwise      = Throw e w
+      | otherwise      = Throw e (go p') w
 
 bp :: SomeException
 bp = E.toException BrokenPipe
@@ -231,10 +230,10 @@ infixl 9 >+>
 p1 >+> p2 = case (p1, p2) of
   -- downstream step
   (_, Yield x p2' w) -> Yield x (p1 >+> p2') w
+  (_, Throw e p2' w) -> Throw e (p1 >+> p2') w
   (_, M s m h2) -> M s (m >>= \p2' -> return $ p1 >+> p2')
                        (\e -> p1 >+> h2 e)
   (_, Pure r w) -> Pure r w
-  (_, Throw e w) -> Throw e w
 
   -- upstream step
   (M s m h1, Await _ _) -> M s (m >>= \p1' -> return $ p1' >+> p2)
@@ -242,10 +241,10 @@ p1 >+> p2 = case (p1, p2) of
   (Await k h1, Await _ _) -> Await (\a -> k a >+> p2)
                                    (\e -> h1 e >+> p2)
   (Pure r w, Await _ h2) -> p1 >+> handleBP r (protect w (h2 bp))
-  (Throw e w, Await _ h2) -> p1 >+> protect w (h2 e)
 
   -- flow data
   (Yield x p1' w, Await k _) -> p1' >+> protect w (k x)
+  (Throw e p1' w, Await _ h) -> p1' >+> protect w (h e)
 
 infixr 9 <+<
 -- | Right to left pipe composition.
@@ -265,9 +264,9 @@ runPipe p = E.mask $ \restore -> run restore p
     run restore = go
       where
         go (Pure r w) = fin w >> return r
-        go (Throw e w) = fin w >> E.throwIO e
         go (Await k _) = go (k ())
         go (Yield x _ _) = absurd x
+        go (Throw e _ w) = fin w >> E.throwIO e
         go (M s m h) = try s m >>= \r -> case r of
           Left e   -> go $ h e
           Right p' -> go p'
@@ -288,9 +287,9 @@ runPipe p = E.mask $ \restore -> run restore p
 -- Any captured exception will be returned in the left component of the result.
 runPurePipe :: Monad m => Pipeline m r -> m (Either SomeException r)
 runPurePipe (Pure r w) = sequence_ w >> return (Right r)
-runPurePipe (Throw e w) = sequence_ w >> return (Left e)
 runPurePipe (Await k _) = runPurePipe $ k ()
 runPurePipe (Yield x _ _) = absurd x
+runPurePipe (Throw e _ w) = sequence_ w >> return (Left e)
 runPurePipe (M _ m _) = m >>= runPurePipe
 
 -- | A version of 'runPurePipe' which rethrows any captured exception instead

@@ -155,7 +155,7 @@ feed :: Monad m => a -> Pipe a b m r -> Pipe a b m r
 -- feed x p = (yield x >> idP) >+> p
 -- but this version is more efficient
 feed _ (Pure r w) = Pure r w
-feed _ (Throw e w) = Throw e w
-feed a (Yield x b w) = Yield x (feed a b) w
+feed a (Yield x p w) = Yield x (feed a p) w
+feed a (Throw e p w) = Throw e (feed a p) w
 feed a (M s m h) = M s (liftM (feed a) m) (feed a . h)
 feed a (Await k _) = k a
