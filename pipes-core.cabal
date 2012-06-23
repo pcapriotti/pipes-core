@@ -62,6 +62,7 @@ Library
                  , monad-control (== 0.3.*)
     Exposed-Modules: Control.Pipe
                    , Control.Pipe.Category
+                   , Control.Pipe.Class
                    , Control.Pipe.Combinators
                    , Control.Pipe.Common
                    , Control.Pipe.Exception

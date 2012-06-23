@@ -131,7 +131,7 @@ groupBy p = streaks >+> createGroups
       (consume >>= yield)
 
 -- | Remove values from the stream that don't satisfy the given predicate.
-filter :: MonadStream m => (a -> Bool) -> Pipe (BaseMonad m) a a r r
+filter :: MonadStream m => (a -> Bool) -> m a a r r
 filter p = withDefer . forever $ takeWhile p
 
 -- | Feed an input element to a pipe.
