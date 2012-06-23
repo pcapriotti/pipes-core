@@ -26,8 +26,8 @@ module Control.Pipe.Combinators (
   drop,
   takeWhile,
   takeWhile_,
---  dropWhile,
---  groupBy,
+  dropWhile,
+  groupBy,
   filter,
   -- ** Other combinators
   pipeList,
@@ -103,25 +103,32 @@ takeWhile p = go
 takeWhile_ :: MonadStreamDefer m => (a -> Bool) -> m a a u ()
 takeWhile_ = void . takeWhile
 
--- -- | Remove inputs as long as they satisfy the given predicate, then act as an
--- -- identity.
--- dropWhile :: MonadStream m => (a -> Bool) -> m a a r r
--- dropWhile p = liftPipe $ (withDefer (takeWhile p) >+> discard) >>= yield >> idP
+-- | Remove inputs as long as they satisfy the given predicate, then act as an
+-- identity.
+dropWhile :: MonadStream m => (a -> Bool) -> m a a r r
+dropWhile p = withDefer $ (takeWhile p >+> discard) >>= yield >> idP
 
 -- | Group input values by the given predicate.
--- groupBy :: MonadStream m => (a -> a -> Bool) -> m a [a] u r
--- groupBy p = streaks >+> createGroups
---   where
---     streaks = await >>= \x -> yield (Just x) >> streaks' x
---     streaks' x = withDefer $ do
---       y <- await
---       unless (p x y) $ yield Nothing
---       yield $ Just y
---       streaks' y
---     createGroups = withDefer . forever $
---       takeWhile_ isJust >+>
---       pipe fromJust >+>
---       (consume1 >>= yield)
+groupBy :: MonadStream m => (a -> a -> Bool) -> m a [a] r r
+groupBy p = streaks >+> createGroups
+  where
+    streaks = withDefer $ do
+      x <- await
+      yield (Just x)
+      r <- streaks' x
+      yield Nothing
+      return r
+
+    streaks' x = withDefer $ do
+      y <- await
+      unless (p x y) $ yield Nothing
+      yield $ Just y
+      streaks' y
+
+    createGroups = withDefer . forever $
+      takeWhile isJust >+>
+      pipe fromJust >+>
+      (consume >>= yield)
 
 -- | Remove values from the stream that don't satisfy the given predicate.
 filter :: MonadStream m => (a -> Bool) -> Pipe (BaseMonad m) a a r r

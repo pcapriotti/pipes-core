@@ -93,30 +93,12 @@ masked = execP Masked
 
 infixl 9 >+>
 -- | Left to right pipe composition.
-(>+>) :: Monad m => Pipe m a b u r -> Pipe m b c r s -> Pipe m a c u s
-p1 >+> p2 = case (p1, p2) of
-  -- downstream step
-  (_, Yield x p2' w) -> Yield x (p1 >+> p2') w
-  (_, Throw e p2' w) -> Throw e (p1 >+> p2') w
-  (_, M s m h2) -> M s (m >>= \p2' -> return $ p1 >+> p2')
-                       (\e -> p1 >+> h2 e)
-  (_, Pure r w) -> Pure r w
-
-  -- upstream step
-  (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ p1' >+> p2)
-                               (\e -> h1 e >+> p2)
-  (Await k j h, Await { }) -> Await (\a -> k a >+> p2)
-                                    (\u -> j u >+> p2)
-                                    (\e -> h e >+> p2)
-
-  -- flow data
-  (Yield x p1' w, Await k _ _) -> p1' >+> protectP w (k x)
-  (Pure r w, Await _ j _) -> p1 >+> protectP w (j r)
-  (Throw e p1' w, Await _ _ h) -> p1' >+> protectP w (h e)
+(>+>) :: MonadStream m => m a b u r -> Pipe (BaseMonad m) b c r s -> m a c u s
+(>+>) = compose
 
 infixr 9 <+<
 -- | Right to left pipe composition.
-(<+<) :: Monad m => Pipe m b c r s -> Pipe m a b u r -> Pipe m a c u s
+(<+<) :: MonadStream m => Pipe (BaseMonad m) b c r s -> m a b u r -> m a c u s
 p2 <+< p1 = p1 >+> p2
 
 -- | Run a self-contained 'Pipeline', converting it to an action in the base

@@ -42,6 +42,8 @@ class (Monad3 m, Monad (BaseMonad m)) => MonadStream m where
 
   liftPipe :: Pipe (BaseMonad m) a b u r -> m a b u r
 
+  compose :: m a b u r -> Pipe (BaseMonad m) b c r s -> m a c u s
+
 class MonadStream m => MonadStreamDefer m where
   defer :: u -> m a b u r
 
@@ -60,6 +62,26 @@ instance Monad m => MonadStream (Pipe m) where
   awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE [])
   yield x = Yield x (return ()) []
   liftPipe = id
+
+  compose p1 p2 = case (p1, p2) of
+    -- downstream step
+    (_, Yield x p2' w) -> Yield x (compose p1 p2') w
+    (_, Throw e p2' w) -> Throw e (compose p1 p2') w
+    (_, M s m h2) -> M s (m >>= \p2' -> return $ compose p1 p2')
+                         (compose p1 . h2)
+    (_, Pure r w) -> Pure r w
+
+    -- upstream step
+    (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ compose p1' p2)
+                                 (\e -> compose (h1 e) p2)
+    (Await k j h, Await { }) -> Await (\a -> compose (k a) p2)
+                                      (\u -> compose (j u) p2)
+                                      (\e -> compose (h e) p2)
+
+    -- flow data
+    (Yield x p1' w, Await k _ _) -> compose p1' (protectP w (k x))
+    (Pure r w, Await _ j _) -> compose p1 (protectP w (j r))
+    (Throw e p1' w, Await _ _ h) -> compose p1' (protectP w (h e))
 
 instance Monad m => Monad3 (Pipe m) where
   return3 r = Pure r []
@@ -95,12 +117,25 @@ instance Monad m => Monad3 (PipeD m) where
   return3 r = PipeD $ return r
   bind3 (PipeD m) f = PipeD $ m >>= unPipeD . f
 
+handleDefers :: Monad m => Pipe m a b u r -> Pipe m a b (Either x u) (Either x r)
+handleDefers = go
+  where
+    go (Pure r w) = Pure (Right r) w
+    go (Throw e p w) = Throw e (go p) w
+    go (Await k j h) = Await (go . k) j' (go . h)
+      where j' (Left x) = return (Left x) -- TODO call finalizer
+            j' (Right x) = go $ j x
+    go (Yield b p w) = Yield b (go p) w
+    go (M s m h) = M s (liftM go m) (go . h)
+
 instance Monad m => MonadStream (PipeD m) where
   type BaseMonad (PipeD m) = m
 
   awaitE = liftPipe awaitE
   yield = liftPipe . yield
   liftPipe = PipeD . lift
+  compose (PipeD p1) p2 = PipeD . EitherT $
+    compose (runEitherT p1) (handleDefers p2)
 
 instance Monad m => MonadStreamDefer (PipeD m) where
   defer = PipeD . hoistEither . Left
@@ -118,6 +153,17 @@ instance Monad m => Monad3 (PipeL m) where
   return3 r = PipeL $ return r
   bind3 (PipeL m) f = PipeL $ m >>= unPipeL . f
 
+handleUnawaits :: Monad m => x -> Pipe m a b u r -> Pipe m a b (u, x) (r, x)
+handleUnawaits = go
+  where
+    go x (Pure r w) = Pure (r, x) w
+    go x (Throw e p w) = Throw e (go x p) w
+    go x (Await k j h) = Await (go x . k) j' (go x . h)
+      where j' (u, x') = go x' (j u)
+    go x (Yield b p w) = Yield b (go x p) w
+    go x (M s m h) = M s (liftM (go x) m) (go x . h)
+
+
 instance Monad m => MonadStream (PipeL m) where
   type BaseMonad (PipeL m) = m
 
@@ -127,6 +173,11 @@ instance Monad m => MonadStream (PipeL m) where
 
   yield = liftPipe . yield
   liftPipe = PipeL . lift
+  compose (PipeL p1) p2 = PipeL $ do
+    let p1' = runStateT p1 []
+    (r, xs) <- lift $ compose p1' (handleUnawaits [] p2)
+    put xs
+    return r
 
 instance Monad m => MonadStreamUnawait (PipeL m) where
   unawait = PipeL . modify . (:)
