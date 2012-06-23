@@ -106,8 +106,8 @@ instance Monad3 m => Applicative (m a b u) where
   pure = return
   (<*>) = ap
 
-instance MonadIO m => MonadIO (Pipe m a b u) where
-  liftIO = execP Unmasked . liftIO
+instance (MonadStream m, MonadIO (BaseMonad m)) => MonadIO (m a b u) where
+  liftIO = liftPipe . execP Unmasked . liftIO
 
 -- PipeD
 
