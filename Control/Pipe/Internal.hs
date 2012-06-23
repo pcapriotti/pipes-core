@@ -48,81 +48,85 @@ type Finalizer m = [m ()]
 --
 --  [@m@] The base monad.
 --
+--  [@u@] THe upstream return type.
+--
 --  [@r@] The type of the monad's final result.
-data Pipe a b m r
+data Pipe a b u m r
   = Pure r (Finalizer m)
-  | Await (a -> Pipe a b m r)
-          (SomeException -> Pipe a b m r)
-  | M MaskState (m (Pipe a b m r))
-                (SomeException -> Pipe a b m r)
-  | Yield b (Pipe a b m r) (Finalizer m)
-  | Throw SomeException (Pipe a b m r) (Finalizer m)
+  | Await (a -> Pipe a b u m r)
+          (u -> Pipe a b u m r)
+          (SomeException -> Pipe a b u m r)
+  | M MaskState (m (Pipe a b u m r))
+                (SomeException -> Pipe a b u m r)
+  | Yield b (Pipe a b u m r) (Finalizer m)
+  | Throw SomeException (Pipe a b u m r) (Finalizer m)
 
-instance Monad m => Monad (Pipe a b m) where
+instance Monad m => Monad (Pipe a b u m) where
   return r = Pure r []
   Pure r w >>= f = case f r of
     Pure r' w' -> Pure r' (w ++ w')
     p'         -> foldr run p' w
       where
         run m p = M Masked (m >> return p) throwP
-  Await k h >>= f = Await (k >=> f) (h >=> f)
+  Await k j h >>= f = Await (k >=> f) (j >=> f) (h >=> f)
   M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
   Yield x p w >>= f = Yield x (p >>= f) w
   Throw e p w >>= f = Throw e (p >>= f) w
 
-instance Monad m => Functor (Pipe a b m) where
+instance Monad m => Functor (Pipe a b u m) where
   fmap = liftM
 
-instance Monad m => Applicative (Pipe a b m) where
+instance Monad m => Applicative (Pipe a b u m) where
   pure = return
   (<*>) = ap
 
-instance MonadTrans (Pipe a b) where
+instance MonadTrans (Pipe a b u) where
   lift = liftP Unmasked
 
-instance MonadIO m => MonadIO (Pipe a b m) where
+instance MonadIO m => MonadIO (Pipe a b u m) where
   liftIO = lift . liftIO
 
 -- | Execute an action in the base monad with the given 'MaskState'.
-liftP :: Monad m => MaskState -> m r -> Pipe a b m r
+liftP :: Monad m => MaskState -> m r -> Pipe a b u m r
 liftP s m = M s (liftM return m) throwP
 
 -- | Throw an exception within the 'Pipe' monad.
-throwP :: Monad m => SomeException -> Pipe a b m r
+throwP :: Monad m => SomeException -> Pipe a b u m r
 throwP e = p
   where p = Throw e p []
 
 -- | Catch an exception within the pipe monad.
 catchP :: Monad m
-       => Pipe a b m r
-       -> (SomeException -> Pipe a b m r)
-       -> Pipe a b m r
+       => Pipe a b u m r
+       -> (SomeException -> Pipe a b u m r)
+       -> Pipe a b u m r
 catchP (Pure r w) _ = Pure r w
 catchP (Throw e _ w) h = protectP w (h e)
-catchP (Await k h) h' = Await (\a -> catchP (k a) h')
-                              (\e -> catchP (h e) h')
+catchP (Await k j h) h' = Await (\a -> catchP (k a) h')
+                                (\u -> catchP (j u) h')
+                                (\e -> catchP (h e) h')
 catchP (M s m h) h' = M s (m >>= \p' -> return $ catchP p' h')
                           (\e -> catchP (h e) h')
 catchP (Yield x p w) h' = Yield x (catchP p h') w
 
 -- | Add a finalizer to a pipe.
 finallyP :: Monad m
-         => Pipe a b m r
+         => Pipe a b u m r
          -> Finalizer m
-         -> Pipe a b m r
+         -> Pipe a b u m r
 finallyP p w = go p
   where
     go (Pure r w') = Pure r (w ++ w')
     go (Throw e p' w') = Throw e p' (w ++ w')
     go (Yield x p' w') = Yield x p' (w ++ w')
     go (M s m h) = M s (liftM go m) (go . h)
-    go (Await k h) = Await (go . k) (go . h)
+    go (Await k j h) = Await (go . k) (go . j) (go . h)
 
-protectP :: Monad m => Finalizer m -> Pipe a b m r -> Pipe a b m r
+protectP :: Monad m => Finalizer m -> Pipe a b u m r -> Pipe a b u m r
 protectP w = go
   where
     go (Pure r w') = Pure r (w ++ w')
-    go (Await k h) = Await k h
+    go (Await k h j) = Await k h j
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (Throw e p' w') = Throw e (go p') (w ++ w')

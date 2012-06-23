@@ -34,9 +34,9 @@ import Prelude hiding (catch)
 -- termination rule of 'Pipe's: if a 'Pipe' at either side terminates, the
 -- whole pipeline terminates.
 catch :: (Monad m, E.Exception e)
-      => Pipe a b m r               -- ^ 'Pipe' to run
-      -> (e -> Pipe a b m r)        -- ^ handler function
-      -> Pipe a b m r
+      => Pipe a b u m r               -- ^ 'Pipe' to run
+      -> (e -> Pipe a b u m r)        -- ^ handler function
+      -> Pipe a b u m r
 catch p h = catchP p $ \e -> case E.fromException e of
   Nothing -> throwP e
   Just e' -> h e'
@@ -49,23 +49,23 @@ catch p h = catchP p $ \e -> case E.fromException e of
 -- If the exception is not caught in the 'Pipeline' at all, it will be rethrown
 -- as a normal Haskell exception when using 'runPipe'.  Note that 'runPurePipe'
 -- returns the exception in an 'Either' value, instead.
-throw :: (Monad m, E.Exception e) => e -> Pipe a b m r
+throw :: (Monad m, E.Exception e) => e -> Pipe a b u m r
 throw = throwP . E.toException
 
 -- | Like 'finally', but only performs the final action if there was an
 -- exception raised by the 'Pipe'.
 onException :: Monad m
-            => Pipe a b m r       -- ^ 'Pipe' to run first
-            -> Pipe a b m s       -- ^ 'Pipe' to run if an exception happens
-            -> Pipe a b m r
+            => Pipe a b u m r       -- ^ 'Pipe' to run first
+            -> Pipe a b u m s       -- ^ 'Pipe' to run if an exception happens
+            -> Pipe a b u m r
 onException p w = catchP p $ \e -> w >> throw e
 
 -- | A specialized variant of 'bracket' with just a computation to run
 -- afterwards.
 finally :: Monad m
-        => Pipe a b m r           -- ^ 'Pipe' to run first
+        => Pipe a b u m r           -- ^ 'Pipe' to run first
         -> m s                    -- ^ finalizer action
-        -> Pipe a b m r
+        -> Pipe a b u m r
 finally p w = do
   r <- onException p (masked w)
   masked w
@@ -86,8 +86,8 @@ finally p w = do
 bracket :: Monad m
         => m r                  -- ^ action to acquire resource
         -> (r -> m y)           -- ^ action to release resource
-        -> (r -> Pipe a b m x)  -- ^ 'Pipe' to run in between
-        -> Pipe a b m x
+        -> (r -> Pipe a b u m x)  -- ^ 'Pipe' to run in between
+        -> Pipe a b u m x
 bracket open close run = do
   r <- masked open
   finally (run r) (close r)
@@ -97,8 +97,8 @@ bracket open close run = do
 bracket_ :: Monad m
          => m r                 -- ^ action to run first
          -> m y                 -- ^ action to run last
-         -> Pipe a b m x        -- ^ 'Pipe' to run in between
-         -> Pipe a b m x
+         -> Pipe a b u m x        -- ^ 'Pipe' to run in between
+         -> Pipe a b u m x
 bracket_ open close run =
   bracket open (const close) (const run)
 
@@ -107,8 +107,8 @@ bracket_ open close run =
 bracketOnError :: Monad m
                => m r                     -- ^ action to acquire resource
                -> (r -> m y)              -- ^ action to release resource
-               -> (r -> Pipe a b m x)     -- ^ 'Pipe' to run in between
-               -> Pipe a b m x
+               -> (r -> Pipe a b u m x)     -- ^ 'Pipe' to run in between
+               -> Pipe a b u m x
 bracketOnError open close run = do
   r <- masked open
   onException (run r) (masked $ close r)
