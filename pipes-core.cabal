@@ -55,6 +55,7 @@ Source-Repository head
 Library
     Build-Depends: base >= 4 && < 5
                  , transformers (>= 0.2 && < 0.4)
+                 , either (== 0.3.*)
                  , categories (== 1.0.*)
                  , void (== 0.5.*)
                  , lifted-base (== 0.1.*)
