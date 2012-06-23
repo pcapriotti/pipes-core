@@ -22,6 +22,7 @@ module Control.Pipe.Common (
   -- >   when ok $ yield x
   awaitE,
   yield,
+  exec,
   masked,
 
   -- ** Basic combinators
@@ -48,37 +49,41 @@ import Data.Void
 import Prelude hiding (id, (.), catch)
 
 -- | A pipe that can only produce values.
-type Producer b u m = Pipe () b u m
+type Producer m b u = Pipe m () b u
 
 -- | A pipe that can only consume values.
-type Consumer a u m = Pipe a Void u m
+type Consumer m a u = Pipe m a Void u
 
 -- | A self-contained pipeline that is ready to be run.
-type Pipeline u m = Pipe () Void u m
+type Pipeline m u = Pipe m () Void u
 
 -- | Wait for input from upstream within the 'Pipe' monad.
 --
 -- 'await' blocks until input is ready.
-awaitE :: Monad m => Pipe a b u m (Either u a)
+awaitE :: Monad m => Pipe m a b u (Either u a)
 awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE [])
 
 -- | Pass output downstream within the 'Pipe' monad.
 --
 -- 'yield' blocks until the downstream pipe calls 'await' again.
-yield :: Monad m => b -> Pipe a b u m ()
+yield :: Monad m => b -> Pipe m a b u ()
 yield x = Yield x (return ()) []
+
+-- | Execute an action in the base monad.
+exec :: Monad m => m r -> Pipe m a b u r
+exec = execP Unmasked
 
 -- | Execute an action in the base monad with asynchronous exceptions masked.
 --
 -- This function is effective only if the 'Pipeline' is run with 'runPipe',
--- otherwise it is identical to 'lift'
-masked :: Monad m => m r -> Pipe a b u m r
-masked = liftP Masked
+-- otherwise it is identical to 'exec'
+masked :: Monad m => m r -> Pipe m a b u r
+masked = execP Masked
 
 -- | Execute the specified pipe for each value in the input stream.
 --
 -- Any action after a call to 'forP' will be executed when upstream terminates.
-forP :: Monad m => (a -> Pipe a b r m s) -> Pipe a b r m r
+forP :: Monad m => (a -> Pipe m a b r s) -> Pipe m a b r r
 forP f = awaitE >>= either return (\x -> f x >> forP f)
 
 -- | Convert a pure function into a pipe.
@@ -86,20 +91,20 @@ forP f = awaitE >>= either return (\x -> f x >> forP f)
 -- > pipe = forever $ do
 -- >   x <- await
 -- >   yield (f x)
-pipe :: Monad m => (a -> b) -> Pipe a b r m r
+pipe :: Monad m => (a -> b) -> Pipe m a b r r
 pipe f = forP $ yield . f
 
 -- | The identity pipe.
-idP :: Monad m => Pipe a a r m r
+idP :: Monad m => Pipe m a a r r
 idP = pipe id
 
 -- | The 'discard' pipe silently discards all input fed to it.
-discard :: Monad m => Pipe a b r m r
+discard :: Monad m => Pipe m a b r r
 discard = forP . const $ return ()
 
 infixl 9 >+>
 -- | Left to right pipe composition.
-(>+>) :: Monad m => Pipe a b u m r -> Pipe b c r m s -> Pipe a c u m s
+(>+>) :: Monad m => Pipe m a b u r -> Pipe m b c r s -> Pipe m a c u s
 p1 >+> p2 = case (p1, p2) of
   -- downstream step
   (_, Yield x p2' w) -> Yield x (p1 >+> p2') w
@@ -122,7 +127,7 @@ p1 >+> p2 = case (p1, p2) of
 
 infixr 9 <+<
 -- | Right to left pipe composition.
-(<+<) :: Monad m => Pipe b c r m s -> Pipe a b u m r -> Pipe a c u m s
+(<+<) :: Monad m => Pipe m b c r s -> Pipe m a b u r -> Pipe m a c u s
 p2 <+< p1 = p1 >+> p2
 
 -- | Run a self-contained 'Pipeline', converting it to an action in the base
@@ -131,7 +136,7 @@ p2 <+< p1 = p1 >+> p2
 -- This function is exception-safe. Any exception thrown in the base monad
 -- during execution of the pipeline will be captured by
 -- 'Control.Pipe.Exception.catch' statements in the 'Pipe' monad.
-runPipe :: MonadBaseControl IO m => Pipeline u m r -> m r
+runPipe :: MonadBaseControl IO m => Pipeline m u r -> m r
 runPipe p = E.mask $ \restore -> run restore p
   where
     fin = mapM_ $ \m -> E.catch m (\(_ :: SomeException) -> return ())
@@ -159,7 +164,7 @@ runPipe p = E.mask $ \restore -> run restore p
 -- not be called.
 --
 -- Any captured exception will be returned in the left component of the result.
-runPurePipe :: Monad m => Pipeline u m r -> m (Either SomeException r)
+runPurePipe :: Monad m => Pipeline m u r -> m (Either SomeException r)
 runPurePipe (Pure r w) = sequence_ w >> return (Right r)
 runPurePipe (Await k _ _) = runPurePipe $ k ()
 runPurePipe (Yield x _ _) = absurd x
@@ -168,5 +173,5 @@ runPurePipe (M _ m _) = m >>= runPurePipe
 
 -- | A version of 'runPurePipe' which rethrows any captured exception instead
 -- of returning it.
-runPurePipe_ :: Monad m => Pipeline u m r -> m r
+runPurePipe_ :: Monad m => Pipeline m u r -> m r
 runPurePipe_ = runPurePipe >=> either E.throw return

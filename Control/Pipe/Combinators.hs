@@ -49,20 +49,20 @@ import Prelude hiding (until, take, drop, concatMap, filter, takeWhile, dropWhil
 -- Further calls to 'tryAwait' after upstream termination will keep returning
 -- 'Nothing', whereas calling 'await' will terminate the current pipe
 -- immediately.
-tryAwait :: Monad m => Pipe a b u m (Maybe a)
+tryAwait :: Monad m => Pipe m a b u (Maybe a)
 tryAwait = awaitE >>= either (\_ -> return Nothing) (return . Just)
 
 -- | Successively yield elements of a list.
-fromList :: Monad m => [a] -> Pipe x a u m ()
+fromList :: Monad m => [a] -> Pipe m x a u ()
 fromList = mapM_ yield
 
 -- | A pipe that terminates immediately.
-nullP :: Monad m => Pipe a b u m ()
+nullP :: Monad m => Pipe m a b u ()
 nullP = return ()
 
 -- | A fold pipe. Apply a b uinary function to successive input values and an
 -- accumulator, and return the final result.
-fold :: Monad m => (b -> a -> b) -> b -> Pipe a x u m b
+fold :: Monad m => (b -> a -> b) -> b -> Pipe m a x u b
 fold f = go
   where
     go x = tryAwait >>= maybe (return x) (let y = f x in y `seq` go . y)
@@ -73,7 +73,7 @@ fold f = go
 -- fold1 f = tryAwait >>= maybe discard (fold f)
 
 -- | Accumulate all input values into a list.
-consume :: Monad m => Pipe a x u m [a]
+consume :: Monad m => Pipe m a x u [a]
 consume = pipe (:) >+> (fold (.) id <*> pure [])
 
 -- -- | Accumulate all input values into a non-empty list.
@@ -89,7 +89,7 @@ consume = pipe (:) >+> (fold (.) id <*> pure [])
 -- drop n = replicateM_ n await >> idP
 -- 
 -- -- | Apply a function with multiple return values to the stream.
--- pipeList :: Monad m => (a -> [b]) -> Pipe a b u m r
+-- pipeList :: Monad m => (a -> [b]) -> Pipe m a b u r
 -- pipeList f = forever $ await >>= mapM_ yield . f
 -- 
 -- -- | Act as an identity until as long as inputs satisfy the given predicate.
@@ -128,7 +128,7 @@ consume = pipe (:) >+> (fold (.) id <*> pure [])
 -- filter p = forever $ takeWhile_ p
 
 -- | Feed an input element to a pipe.
-feed :: Monad m => a -> Pipe a b u m r -> Pipe a b u m r
+feed :: Monad m => a -> Pipe m a b u r -> Pipe m a b u r
 
 -- this could be implemented as
 -- feed x p = (yield x >> idP) >+> p

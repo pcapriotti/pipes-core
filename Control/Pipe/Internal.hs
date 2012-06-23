@@ -7,7 +7,7 @@ module Control.Pipe.Internal (
   Pipe(..),
 
   -- ** Low level primitives
-  liftP,
+  execP,
   throwP,
   catchP,
   finallyP,
@@ -18,7 +18,6 @@ import Control.Applicative
 import Control.Exception hiding (Unmasked)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
 import Data.Typeable
 
 -- | The 'BrokenPipe' exception is used to signal termination of the
@@ -51,17 +50,17 @@ type Finalizer m = [m ()]
 --  [@u@] THe upstream return type.
 --
 --  [@r@] The type of the monad's final result.
-data Pipe a b u m r
+data Pipe m a b u r
   = Pure r (Finalizer m)
-  | Await (a -> Pipe a b u m r)
-          (u -> Pipe a b u m r)
-          (SomeException -> Pipe a b u m r)
-  | M MaskState (m (Pipe a b u m r))
-                (SomeException -> Pipe a b u m r)
-  | Yield b (Pipe a b u m r) (Finalizer m)
-  | Throw SomeException (Pipe a b u m r) (Finalizer m)
+  | Await (a -> Pipe m a b u r)
+          (u -> Pipe m a b u r)
+          (SomeException -> Pipe m a b u r)
+  | M MaskState (m (Pipe m a b u r))
+                (SomeException -> Pipe m a b u r)
+  | Yield b (Pipe m a b u r) (Finalizer m)
+  | Throw SomeException (Pipe m a b u r) (Finalizer m)
 
-instance Monad m => Monad (Pipe a b u m) where
+instance Monad m => Monad (Pipe m a b u) where
   return r = Pure r []
   Pure r w >>= f = case f r of
     Pure r' w' -> Pure r' (w ++ w')
@@ -73,33 +72,30 @@ instance Monad m => Monad (Pipe a b u m) where
   Yield x p w >>= f = Yield x (p >>= f) w
   Throw e p w >>= f = Throw e (p >>= f) w
 
-instance Monad m => Functor (Pipe a b u m) where
+instance Monad m => Functor (Pipe m a b u) where
   fmap = liftM
 
-instance Monad m => Applicative (Pipe a b u m) where
+instance Monad m => Applicative (Pipe m a b u) where
   pure = return
   (<*>) = ap
 
-instance MonadTrans (Pipe a b u) where
-  lift = liftP Unmasked
-
-instance MonadIO m => MonadIO (Pipe a b u m) where
-  liftIO = lift . liftIO
+instance MonadIO m => MonadIO (Pipe m a b u) where
+  liftIO = execP Unmasked . liftIO
 
 -- | Execute an action in the base monad with the given 'MaskState'.
-liftP :: Monad m => MaskState -> m r -> Pipe a b u m r
-liftP s m = M s (liftM return m) throwP
+execP :: Monad m => MaskState -> m r -> Pipe m a b u r
+execP s m = M s (liftM return m) throwP
 
 -- | Throw an exception within the 'Pipe' monad.
-throwP :: Monad m => SomeException -> Pipe a b u m r
+throwP :: Monad m => SomeException -> Pipe m a b u r
 throwP e = p
   where p = Throw e p []
 
 -- | Catch an exception within the pipe monad.
 catchP :: Monad m
-       => Pipe a b u m r
-       -> (SomeException -> Pipe a b u m r)
-       -> Pipe a b u m r
+       => Pipe m a b u r
+       -> (SomeException -> Pipe m a b u r)
+       -> Pipe m a b u r
 catchP (Pure r w) _ = Pure r w
 catchP (Throw e _ w) h = protectP w (h e)
 catchP (Await k j h) h' = Await (\a -> catchP (k a) h')
@@ -111,9 +107,9 @@ catchP (Yield x p w) h' = Yield x (catchP p h') w
 
 -- | Add a finalizer to a pipe.
 finallyP :: Monad m
-         => Pipe a b u m r
+         => Pipe m a b u r
          -> Finalizer m
-         -> Pipe a b u m r
+         -> Pipe m a b u r
 finallyP p w = go p
   where
     go (Pure r w') = Pure r (w ++ w')
@@ -122,7 +118,7 @@ finallyP p w = go p
     go (M s m h) = M s (liftM go m) (go . h)
     go (Await k j h) = Await (go . k) (go . j) (go . h)
 
-protectP :: Monad m => Finalizer m -> Pipe a b u m r -> Pipe a b u m r
+protectP :: Monad m => Finalizer m -> Pipe m a b u r -> Pipe m a b u r
 protectP w = go
   where
     go (Pure r w') = Pure r (w ++ w')
