@@ -7,6 +7,7 @@ module Control.Pipe.Internal (
   Pipe(..),
 
   -- ** Low level primitives
+  pureP,
   execP,
   throwP,
   catchP,
@@ -14,10 +15,8 @@ module Control.Pipe.Internal (
   protectP,
   ) where
 
-import Control.Applicative
 import Control.Exception hiding (Unmasked)
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Typeable
 
 -- | The 'BrokenPipe' exception is used to signal termination of the
@@ -60,31 +59,12 @@ data Pipe m a b u r
   | Yield b (Pipe m a b u r) (Finalizer m)
   | Throw SomeException (Pipe m a b u r) (Finalizer m)
 
-instance Monad m => Monad (Pipe m a b u) where
-  return r = Pure r []
-  Pure r w >>= f = case f r of
-    Pure r' w' -> Pure r' (w ++ w')
-    p'         -> foldr run p' w
-      where
-        run m p = M Masked (m >> return p) throwP
-  Await k j h >>= f = Await (k >=> f) (j >=> f) (h >=> f)
-  M s m h >>= f = M s (m >>= \p -> return $ p >>= f) (h >=> f)
-  Yield x p w >>= f = Yield x (p >>= f) w
-  Throw e p w >>= f = Throw e (p >>= f) w
-
-instance Monad m => Functor (Pipe m a b u) where
-  fmap = liftM
-
-instance Monad m => Applicative (Pipe m a b u) where
-  pure = return
-  (<*>) = ap
-
-instance MonadIO m => MonadIO (Pipe m a b u) where
-  liftIO = execP Unmasked . liftIO
+pureP :: r -> Pipe m a b u r
+pureP r = Pure r []
 
 -- | Execute an action in the base monad with the given 'MaskState'.
 execP :: Monad m => MaskState -> m r -> Pipe m a b u r
-execP s m = M s (liftM return m) throwP
+execP s m = M s (liftM pureP m) throwP
 
 -- | Throw an exception within the 'Pipe' monad.
 throwP :: Monad m => SomeException -> Pipe m a b u r

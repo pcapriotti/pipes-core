@@ -20,15 +20,17 @@ module Control.Pipe.Common (
   -- >   lift $ putStrLn $ "Can " ++ show x ++ " pass?"
   -- >   ok <- lift $ read <$> getLine
   -- >   when ok $ yield x
-  awaitE,
-  yield,
   exec,
   masked,
 
   -- ** Basic combinators
-  pipe,
+  await,
+  yield,
+  awaitE,
+  liftPipe,
   forP,
   idP,
+  pipe,
   discard,
   (>+>),
   (<+<),
@@ -39,14 +41,13 @@ module Control.Pipe.Common (
   runPurePipe_,
   ) where
 
-import Control.Category
 import Control.Exception (SomeException)
 import qualified Control.Exception.Lifted as E
 import Control.Pipe.Internal
+import Control.Pipe.Class
 import Control.Monad
 import Control.Monad.Trans.Control
 import Data.Void
-import Prelude hiding (id, (.), catch)
 
 -- | A pipe that can only produce values.
 type Producer m b u = Pipe m () b u
@@ -57,17 +58,27 @@ type Consumer m a u = Pipe m a Void u
 -- | A self-contained pipeline that is ready to be run.
 type Pipeline m u = Pipe m () Void u
 
--- | Wait for input from upstream within the 'Pipe' monad.
+-- | Execute the specified pipe for each value in the input stream.
 --
--- 'await' blocks until input is ready.
-awaitE :: Monad m => Pipe m a b u (Either u a)
-awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE [])
+-- Any action after a call to 'forP' will be executed when upstream terminates.
+forP :: MonadStream m => (a -> m a b r s) -> m a b r r
+forP f = awaitE >>= either return (\x -> f x >> forP f)
 
--- | Pass output downstream within the 'Pipe' monad.
+-- | Convert a pure function into a pipe.
 --
--- 'yield' blocks until the downstream pipe calls 'await' again.
-yield :: Monad m => b -> Pipe m a b u ()
-yield x = Yield x (return ()) []
+-- > pipe = forever $ do
+-- >   x <- await
+-- >   yield (f x)
+pipe :: MonadStream m => (a -> b) -> m a b r r
+pipe f = forP $ yield . f
+
+-- | The identity pipe.
+idP :: MonadStream m => m a a r r
+idP = pipe id
+
+-- | The 'discard' pipe silently discards all input fed to it.
+discard :: MonadStream m => m a b r r
+discard = forP . const $ return ()
 
 -- | Execute an action in the base monad.
 exec :: Monad m => m r -> Pipe m a b u r
@@ -79,28 +90,6 @@ exec = execP Unmasked
 -- otherwise it is identical to 'exec'
 masked :: Monad m => m r -> Pipe m a b u r
 masked = execP Masked
-
--- | Execute the specified pipe for each value in the input stream.
---
--- Any action after a call to 'forP' will be executed when upstream terminates.
-forP :: Monad m => (a -> Pipe m a b r s) -> Pipe m a b r r
-forP f = awaitE >>= either return (\x -> f x >> forP f)
-
--- | Convert a pure function into a pipe.
---
--- > pipe = forever $ do
--- >   x <- await
--- >   yield (f x)
-pipe :: Monad m => (a -> b) -> Pipe m a b r r
-pipe f = forP $ yield . f
-
--- | The identity pipe.
-idP :: Monad m => Pipe m a a r r
-idP = pipe id
-
--- | The 'discard' pipe silently discards all input fed to it.
-discard :: Monad m => Pipe m a b r r
-discard = forP . const $ return ()
 
 infixl 9 >+>
 -- | Left to right pipe composition.
