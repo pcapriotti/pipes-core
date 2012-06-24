@@ -1,7 +1,6 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, FlexibleInstances #-}
 module Control.Pipe.Internal (
   -- ** Low level types
-  BrokenPipe(..),
   MaskState(..),
   Finalizer,
   Pipe(..),
@@ -18,19 +17,6 @@ module Control.Pipe.Internal (
 
 import Control.Exception hiding (Unmasked)
 import Control.Monad
-import Data.Typeable
-
--- | The 'BrokenPipe' exception is used to signal termination of the
--- upstream portion of a 'Pipeline' before the current pipe
---
--- A 'BrokenPipe' exception can be caught to perform cleanup actions
--- immediately before termination, like returning a result or yielding
--- additional values.
-data BrokenPipe = BrokenPipe
-  deriving (Show, Typeable)
-
-instance Exception BrokenPipe
-
 
 -- | Type of action in the base monad.
 data MaskState
