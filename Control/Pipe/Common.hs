@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, Rank2Types, ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts, ScopedTypeVariables #-}
 module Control.Pipe.Common (
   -- ** Types
   Pipe,

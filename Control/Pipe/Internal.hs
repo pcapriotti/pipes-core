@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleInstances #-}
 module Control.Pipe.Internal (
   -- ** Low level types
   MaskState(..),
