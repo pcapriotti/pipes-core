@@ -6,7 +6,9 @@ module Control.Pipe.Monoidal (
   -- Most of the combinators are generalizations of the corresponding functions
   -- in 'Control.Arrow', and obey appropriately generalized laws.
   firstP,
+  firstResultP,
   secondP,
+  secondResultP,
   (***),
   associateP,
   disassociateP,
@@ -41,6 +43,20 @@ firstP (Await k j h w) = go
                (firstP . j)
                (firstP . h) w
 
+firstResultP :: Monad m
+             => Pipe m a b u r
+             -> Pipe m a b (Either u x) (Either r x)
+firstResultP (Pure r w) = Pure (Left r) w
+firstResultP (Throw e p w) = Throw e (firstResultP p) w
+firstResultP (Yield x p w) = Yield x (firstResultP p) w
+firstResultP (M s m h) = M s (liftM firstResultP m) (firstResultP . h)
+firstResultP (Await k j h w) = go
+  where
+    go = Await (firstResultP . k)
+               (either (firstResultP . j)
+                       (return . Right))
+               (firstResultP . h) w
+
 -- | This function is the equivalent of 'firstP' for the right component.
 secondP :: Monad m
         => Pipe m a b u r
@@ -55,6 +71,20 @@ secondP (Await k j h w) = go
                        (secondP . k))
                (secondP . j)
                (secondP . h) w
+
+secondResultP :: Monad m
+              => Pipe m a b u r
+              -> Pipe m a b (Either x u) (Either x r)
+secondResultP (Pure r w) = Pure (Right r) w
+secondResultP (Throw e p w) = Throw e (secondResultP p) w
+secondResultP (Yield x p w) = Yield x (secondResultP p) w
+secondResultP (M s m h) = M s (liftM secondResultP m) (secondResultP . h)
+secondResultP (Await k j h w) = go
+  where
+    go = Await (secondResultP . k)
+               (either (return . Left)
+                       (secondResultP . j))
+               (secondResultP . h) w
 
 -- | Combine two pipes into a single pipe that behaves like the first on the
 -- left component, and the second on the right component.
