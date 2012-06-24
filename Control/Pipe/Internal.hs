@@ -13,6 +13,7 @@ module Control.Pipe.Internal (
   catchP,
   finallyP,
   protectP,
+  composeP,
   ) where
 
 import Control.Exception hiding (Unmasked)
@@ -107,3 +108,27 @@ protectP w = go
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (Throw e p' w') = Throw e (go p') (w ++ w')
+
+composeP :: Monad m
+         => Pipe m a b u r
+         -> Pipe m b c r s
+         -> Pipe m a c u s
+composeP p1 p2 = case (p1, p2) of
+  -- downstream step
+  (_, Yield x p2' w) -> Yield x (composeP p1 p2') w
+  (_, Throw e p2' w) -> Throw e (composeP p1 p2') w
+  (_, M s m h2) -> M s (m >>= \p2' -> return $ composeP p1 p2')
+                       (composeP p1 . h2)
+  (_, Pure r w) -> Pure r w
+
+  -- upstream step
+  (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ composeP p1' p2)
+                               (\e -> composeP (h1 e) p2)
+  (Await k j h w, Await { }) -> Await (\a -> composeP (k a) p2)
+                                      (\u -> composeP (j u) p2)
+                                      (\e -> composeP (h e) p2) w
+
+  -- flow data
+  (Yield x p1' w, Await k _ _ _) -> composeP p1' (protectP w (k x))
+  (Pure r w, Await _ j _ _) -> composeP p1 (protectP w (j r))
+  (Throw e p1' w, Await _ _ h _) -> composeP p1' (protectP w (h e))

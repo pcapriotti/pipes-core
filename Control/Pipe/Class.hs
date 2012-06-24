@@ -63,26 +63,7 @@ instance Monad m => MonadStream (Pipe m) where
   awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE []) []
   yield x = Yield x (return ()) []
   liftPipe = id
-
-  compose p1 p2 = case (p1, p2) of
-    -- downstream step
-    (_, Yield x p2' w) -> Yield x (compose p1 p2') w
-    (_, Throw e p2' w) -> Throw e (compose p1 p2') w
-    (_, M s m h2) -> M s (m >>= \p2' -> return $ compose p1 p2')
-                         (compose p1 . h2)
-    (_, Pure r w) -> Pure r w
-
-    -- upstream step
-    (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ compose p1' p2)
-                                 (\e -> compose (h1 e) p2)
-    (Await k j h w, Await { }) -> Await (\a -> compose (k a) p2)
-                                        (\u -> compose (j u) p2)
-                                        (\e -> compose (h e) p2) w
-
-    -- flow data
-    (Yield x p1' w, Await k _ _ _) -> compose p1' (protectP w (k x))
-    (Pure r w, Await _ j _ _) -> compose p1 (protectP w (j r))
-    (Throw e p1' w, Await _ _ h _) -> compose p1' (protectP w (h e))
+  compose = composeP
 
 instance Monad m => Monad3 (Pipe m) where
   return3 r = Pure r []
