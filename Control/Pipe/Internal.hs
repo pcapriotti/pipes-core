@@ -94,8 +94,8 @@ finallyP :: Monad m
 finallyP p w = go p
   where
     go (Pure r w') = Pure r (w ++ w')
-    go (Throw e p' w') = Throw e p' (w ++ w')
-    go (Yield x p' w') = Yield x p' (w ++ w')
+    go (Throw e p' w') = Throw e (go p') (w ++ w')
+    go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (M s m h) = M s (liftM go m) (go . h)
     go (Await k j h w') = Await (go . k) (go . j) (go . h) (w ++ w')
 

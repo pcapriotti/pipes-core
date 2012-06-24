@@ -65,12 +65,9 @@ onException p w = catchP p $ \e -> w >> throw e
 -- afterwards.
 finally :: Monad m
         => Pipe m a b u r           -- ^ 'Pipe' to run first
-        -> m s                    -- ^ finalizer action
+        -> m s                      -- ^ finalizer action
         -> Pipe m a b u r
-finally p w = do
-  r <- finallyP p [liftM (const ()) w]
-  masked w
-  return r
+finally p w = finallyP p [liftM (const ()) w]
 
 
 -- | Allocate a resource within the base monad, run a 'Pipe', then ensure the
