@@ -1,6 +1,7 @@
 module Control.Pipe.Exception (
   throw,
   catch,
+  try,
   bracket,
   bracket_,
   bracketOnError,
@@ -8,6 +9,7 @@ module Control.Pipe.Exception (
   onException,
   ) where
 
+import Control.Applicative
 import qualified Control.Exception as E
 import Control.Monad
 import Control.Pipe.Common
@@ -41,6 +43,11 @@ catch :: (Monad m, E.Exception e)
 catch p h = catchP p $ \e -> case E.fromException e of
   Nothing -> throwP e
   Just e' -> h e'
+
+try :: (Monad m, E.Exception e)
+    => Pipe m a b u r
+    -> Pipe m a b u (Either e r)
+try p = catch (Right <$> p) (return . Left)
 
 -- | Throw an exception within the 'Pipe' monad.
 --
