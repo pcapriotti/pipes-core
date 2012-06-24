@@ -164,16 +164,38 @@ handleUnawaits = go
     go x (Yield b p w) = Yield b (go x p) w
     go x (M s m h) = M s (liftM (go x) m) (go x . h)
 
+liftPipeL :: Monad m => Pipe m a b u r -> StateT [a] (Pipe m a b u) r
+liftPipeL (Pure r w) = lift (Pure r w)
+liftPipeL (Throw e p w) = do
+  lift $ Throw e (return ()) w
+  liftPipeL p
+liftPipeL (Yield x p w) = do
+  lift $ Yield x (return ()) w
+  liftPipeL p
+liftPipeL (Await k j h w) = get >>= \xs -> case xs of
+  [] -> do
+    x <- lift $ Await (return . Right . Right)
+                      (return . Right . Left)
+                      (return . Left) w
+    case x of
+      Right (Right a) -> liftPipeL (k a)
+      Right (Left u) -> liftPipeL (j u)
+      Left e -> liftPipeL (h e)
+  (x:xs') -> put xs' >> liftPipeL (k x)
+liftPipeL (M s m h) = do
+  x <- lift $ M s (liftM (return . Right) m) (return . Left)
+  case x of
+    Left e -> liftPipeL (h e)
+    Right p' -> liftPipeL p'
 
 instance Monad m => MonadStream (PipeL m) where
   type BaseMonad (PipeL m) = m
 
-  awaitE = PipeL $ get >>= \stack -> case stack of
-    [] -> lift awaitE
-    (x : xs) -> put xs >> return (Right x)
-
+  awaitE = liftPipe awaitE
   yield = liftPipe . yield
-  liftPipe = PipeL . lift
+
+  liftPipe = PipeL . liftPipeL
+
   compose (PipeL p1) p2 = PipeL $ do
     let p1' = runStateT p1 []
     (r, xs) <- lift $ compose p1' (handleUnawaits [] p2)

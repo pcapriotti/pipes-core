@@ -77,6 +77,9 @@ prop_filter :: [Int] -> (Int -> Bool) -> Bool
 prop_filter xs p =
   run (P.fromList xs >+> P.filter p >+> P.consume) == filter p xs
 
+prop_feed :: Int -> [Int] -> Bool
+prop_feed x ys = run (P.fromList ys >+> P.feed x P.consume) == x:ys
+
 prop_finalizer :: Int -> Int -> Int -> Bool
 prop_finalizer x y z = runWriter (runPurePipe_ (p1 >+> p2)) == (True, [z, x, y])
   where
