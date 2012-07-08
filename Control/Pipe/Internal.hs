@@ -108,9 +108,10 @@ composeP p1 p2 = case (p1, p2) of
   -- upstream step
   (M s m h1, Await { }) -> M s (m >>= \p1' -> return $ composeP p1' p2)
                                (\e -> composeP (h1 e) p2)
-  (Await k j h w, Await { }) -> Await (\a -> composeP (k a) p2)
-                                      (\u -> composeP (j u) p2)
-                                      (\e -> composeP (h e) p2) w
+  (Await k j h w, Await _ _ _ w') -> Await (\a -> composeP (k a) p2)
+                                           (\u -> composeP (j u) p2)
+                                           (\e -> composeP (h e) p2)
+                                           (w ++ w')
 
   -- flow data
   (Yield x p1' w, Await k _ _ _) -> composeP p1' (protectP w (k x))
