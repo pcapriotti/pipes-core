@@ -60,7 +60,7 @@ class MonadStream m => MonadStreamUnawait m where
 
 instance Monad m => MonadStream (Pipe m) where
   type BaseMonad (Pipe m) = m
-  awaitE = Await (return . Right) (return . Left) (\e -> Throw e awaitE []) []
+  awaitE = Await (return . Right) (return . Left) throwP []
   yield x = Yield x (return ()) []
   liftPipe = id
   compose = composeP
@@ -78,7 +78,7 @@ instance Monad m => Monad3 (Pipe m) where
   M s m h `bind3` f = M s (m >>= \p -> return $ p `bind3` f)
                           (\e -> h e `bind3` f)
   Yield x p w `bind3` f = Yield x (p `bind3` f) w
-  Throw e p w `bind3` f = Throw e (p `bind3` f) w
+  Throw e w `bind3` _ = Throw e w
 
 instance Monad3 m => Functor (m a b u) where
   fmap = liftM
@@ -103,7 +103,7 @@ handleDefers :: Monad m => Pipe m a b u r -> Pipe m a b (Either x u) (Either x r
 handleDefers = go
   where
     go (Pure r w) = Pure (Right r) w
-    go (Throw e p w) = Throw e (go p) w
+    go (Throw e w) = Throw e w
     go (Await k j h w) = Await (go . k) j' (go . h) w
       where j' (Left x) = Pure (Left x) w
             j' (Right x) = go $ j x
@@ -139,7 +139,7 @@ handleUnawaits :: Monad m => x -> Pipe m a b u r -> Pipe m a b (u, x) (r, x)
 handleUnawaits = go
   where
     go x (Pure r w) = Pure (r, x) w
-    go x (Throw e p w) = Throw e (go x p) w
+    go _ (Throw e w) = Throw e w
     go x (Await k j h w) = Await (go x . k) j' (go x . h) w
       where j' (u, x') = go x' (j u)
     go x (Yield b p w) = Yield b (go x p) w
@@ -147,9 +147,7 @@ handleUnawaits = go
 
 liftPipeL :: Monad m => Pipe m a b u r -> StateT [a] (Pipe m a b u) r
 liftPipeL (Pure r w) = lift (Pure r w)
-liftPipeL (Throw e p w) = do
-  lift $ Throw e (return ()) w
-  liftPipeL p
+liftPipeL (Throw e w) = lift (Throw e w)
 liftPipeL (Yield x p w) = do
   lift $ Yield x (return ()) w
   liftPipeL p

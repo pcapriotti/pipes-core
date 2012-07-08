@@ -34,7 +34,7 @@ firstP :: Monad m
        -> Pipe m (Either a c) (Either b c) u r
 firstP (Pure r w) = Pure r w
 firstP (Yield x p w) = Yield (Left x) (firstP p) w
-firstP (Throw e p w) = Throw e (firstP p) w
+firstP (Throw e w) = Throw e w
 firstP (M s m h) = M s (liftM firstP m) (firstP . h)
 firstP (Await k j h w) = go
   where
@@ -47,7 +47,7 @@ firstResultP :: Monad m
              => Pipe m a b u r
              -> Pipe m a b (Either u x) (Either r x)
 firstResultP (Pure r w) = Pure (Left r) w
-firstResultP (Throw e p w) = Throw e (firstResultP p) w
+firstResultP (Throw e w) = Throw e w
 firstResultP (Yield x p w) = Yield x (firstResultP p) w
 firstResultP (M s m h) = M s (liftM firstResultP m) (firstResultP . h)
 firstResultP (Await k j h w) = go
@@ -63,7 +63,7 @@ secondP :: Monad m
         -> Pipe m (Either c a) (Either c b) u r
 secondP (Pure r w) = Pure r w
 secondP (Yield x p w) = Yield (Right x) (secondP p) w
-secondP (Throw e p w) = Throw e (secondP p) w
+secondP (Throw e w) = Throw e w
 secondP (M s m h) = M s (liftM secondP m) (secondP . h)
 secondP (Await k j h w) = go
   where
@@ -76,7 +76,7 @@ secondResultP :: Monad m
               => Pipe m a b u r
               -> Pipe m a b (Either x u) (Either x r)
 secondResultP (Pure r w) = Pure (Right r) w
-secondResultP (Throw e p w) = Throw e (secondResultP p) w
+secondResultP (Throw e w) = Throw e w
 secondResultP (Yield x p w) = Yield x (secondResultP p) w
 secondResultP (M s m h) = M s (liftM secondResultP m) (secondResultP . h)
 secondResultP (Await k j h w) = go
@@ -148,7 +148,7 @@ loopP = go emptyQueue
     go :: Monad m => Queue c -> Pipe m (Either a c) (Either b c) u r -> Pipe m a b u r
     go _ (Pure r w) = Pure r w
     go q (Yield (Right x) p _) = go (enqueue x q) p
-    go q (Throw e p w) = Throw e (go q p) w
+    go _ (Throw e w) = Throw e w
     go q (Yield (Left x) p w) = Yield x (go q p) w
     go q (M s m h) = M s (liftM (go q) m) (go q . h)
     go q (Await k j h w) = case dequeue q of

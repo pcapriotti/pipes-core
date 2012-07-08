@@ -44,7 +44,7 @@ data Pipe m a b u r
   | M MaskState (m (Pipe m a b u r))
                 (SomeException -> Pipe m a b u r)
   | Yield b (Pipe m a b u r) (Finalizer m)
-  | Throw SomeException (Pipe m a b u r) (Finalizer m)
+  | Throw SomeException (Finalizer m)
 
 pureP :: r -> Pipe m a b u r
 pureP r = Pure r []
@@ -55,8 +55,7 @@ execP s m = M s (liftM pureP m) throwP
 
 -- | Throw an exception within the 'Pipe' monad.
 throwP :: Monad m => SomeException -> Pipe m a b u r
-throwP e = p
-  where p = Throw e p []
+throwP e = Throw e []
 
 -- | Catch an exception within the pipe monad.
 catchP :: Monad m
@@ -64,7 +63,7 @@ catchP :: Monad m
        -> (SomeException -> Pipe m a b u r)
        -> Pipe m a b u r
 catchP (Pure r w) _ = Pure r w
-catchP (Throw e _ w) h = protectP w (h e)
+catchP (Throw e w) h = protectP w (h e)
 catchP (Await k j h w) h' = Await (\a -> catchP (k a) h')
                                   (\u -> catchP (j u) h')
                                   (\e -> catchP (h e) h') w
@@ -80,7 +79,7 @@ finallyP :: Monad m
 finallyP p w = go p
   where
     go (Pure r w') = Pure r (w ++ w')
-    go (Throw e p' w') = Throw e (go p') (w ++ w')
+    go (Throw e w') = Throw e (w ++ w')
     go (Yield x p' w') = Yield x (go p') (w ++ w')
     go (M s m h) = M s (liftM go m) (go . h)
     go (Await k j h w') = Await (go . k) (go . j) (go . h) (w ++ w')
@@ -92,7 +91,7 @@ protectP w = go
     go (Await k h j w') = Await k h j w'
     go (M s m h) = M s (liftM go m) (go . h)
     go (Yield x p' w') = Yield x (go p') (w ++ w')
-    go (Throw e p' w') = Throw e (go p') (w ++ w')
+    go (Throw e w') = Throw e (w ++ w')
 
 composeP :: Monad m
          => Pipe m a b u r
@@ -101,7 +100,7 @@ composeP :: Monad m
 composeP p1 p2 = case (p1, p2) of
   -- downstream step
   (_, Yield x p2' w) -> Yield x (composeP p1 p2') w
-  (_, Throw e p2' w) -> Throw e (composeP p1 p2') w
+  (_, Throw e w) -> Throw e w
   (_, M s m h2) -> M s (m >>= \p2' -> return $ composeP p1 p2')
                        (composeP p1 . h2)
   (_, Pure r w) -> Pure r w
@@ -116,4 +115,4 @@ composeP p1 p2 = case (p1, p2) of
   -- flow data
   (Yield x p1' w, Await k _ _ _) -> composeP p1' (protectP w (k x))
   (Pure r w, Await _ j _ _) -> composeP p1 (protectP w (j r))
-  (Throw e p1' w, Await _ _ h _) -> composeP p1' (protectP w (h e))
+  (Throw e w, Await _ _ h _) -> composeP p1 (protectP w (h e))
