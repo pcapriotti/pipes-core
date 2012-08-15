@@ -115,7 +115,7 @@ module Control.Pipe (
   -- 'MonadBaseControl', but we will work with the above simplified signature in
   -- this tutorial.
   --
-  -- There are also more general versione of 'runPipe' which work in
+  -- There are also more general versions of 'runPipe' which work in
   -- any monad, but don't have any exception-safety guarantees, so they should
   -- only be used for 'Pipe's that don't allocate any scarce resources.
   --
